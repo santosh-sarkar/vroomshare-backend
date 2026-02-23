@@ -13,8 +13,6 @@ const transporter = nodemailer.createTransport({
  * Send verification code to email
  */
 async function sendVerificationEmail(email, verificationCode, userName = "User") {
-    console.log(process.env.EMAIL_USER)
-    console.log(process.env.EMAIL_PASSWORD)
   try {
     const mailOptions = {
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
