@@ -93,7 +93,7 @@ async function initiateSignup(email, password, role, userData) {
     // Check if email already exists
     let existingUser = await findUserByEmail(email);
     if (existingUser) {
-      throw new Error("Email already registered");
+      throw new Error("This Email is already registered.");
     }
 
     // Generate verification code

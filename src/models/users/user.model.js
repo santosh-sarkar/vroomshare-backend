@@ -8,10 +8,12 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     isEmailVerified: { type: Boolean, default: false },
+    acceptedTerms: { type: Boolean, default: false }, // ✅ Track T&C acceptance
+    acceptedTermsAt: { type: Date },
     emailVerificationCode: { type: String },
     emailVerificationCodeExpires: { type: Date },
   },
-  options
+  options,
 );
 
 const User = mongoose.model("User", UserSchema);

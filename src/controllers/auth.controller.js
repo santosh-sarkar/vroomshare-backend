@@ -8,15 +8,14 @@ const {
 } = require("../services/auth.service");
 const { COOKIE_OPTIONS } = require("../config/cookies");
 
-
- // Step 1: Initiate signup - User fills details and clicks "Sign Up"
+// Step 1: Initiate signup - User fills details and clicks "Sign Up"
 async function signup(req, res, next) {
   try {
     const { email, password, role, name } = req.body;
 
     if (!email || !password || !role || !name) {
-      return res.status(400).json({ 
-        message: "Email, password, role, and name are required" 
+      return res.status(400).json({
+        message: "Email, password, role, and name are required",
       });
     }
 
@@ -45,8 +44,8 @@ async function verifyAndRegister(req, res, next) {
     const { email, code } = req.body;
 
     if (!email || !code) {
-      return res.status(400).json({ 
-        message: "Email and verification code are required" 
+      return res.status(400).json({
+        message: "Email and verification code are required",
       });
     }
 
@@ -59,12 +58,18 @@ async function verifyAndRegister(req, res, next) {
     res.status(201).json({
       ok: true,
       msg: "Registration successful",
-      userId: user._id,
-      email: user.email,
-      role: user.role,
+      user: {
+        userId: user._id,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (err) {
-    if (err.message.includes("expired") || err.message.includes("Invalid") || err.message.includes("No signup")) {
+    if (
+      err.message.includes("expired") ||
+      err.message.includes("Invalid") ||
+      err.message.includes("No signup")
+    ) {
       return res.status(400).json({ message: err.message });
     }
     next(err);
@@ -91,13 +96,20 @@ async function login(req, res, next) {
     }
 
     // Generate and set tokens
-    const { accessToken, refreshToken } = generateUserTokens(user._id, user.role);
+    const { accessToken, refreshToken } = generateUserTokens(
+      user._id,
+      user.role,
+    );
     setAuthCookies(res, accessToken, refreshToken);
 
     res.status(200).json({
       ok: true,
-      userId: user._id,
-      role: user.role,
+      msg: "login successful",
+      user: {
+        userId: user._id,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (err) {
     next(err);
