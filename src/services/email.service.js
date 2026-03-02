@@ -3,6 +3,7 @@ const nodemailer = require("nodemailer");
 // Create transporter - configure with your email provider
 const transporter = nodemailer.createTransport({
   service: process.env.EMAIL_SERVICE || "gmail",
+  family: 4,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
