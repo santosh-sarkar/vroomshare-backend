@@ -6,7 +6,17 @@ const routes = require('./routes');
 const { errorHandler } = require('./middlewares/error.middleware');
 
 const app = express();
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://vroomshare-frontend.vercel.app/",
+  "https://vroomshare.vercel.app"
+];
+app.use(cors({ 
+  origin: allowedOrigins, 
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use(express.json());
