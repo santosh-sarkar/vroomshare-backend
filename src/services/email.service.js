@@ -1,9 +1,20 @@
 const nodemailer = require("nodemailer");
+const dns = require("dns");
+
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch (err) {
+}
 
 // Create transporter - configure with your email provider
 const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || "gmail",
-  family: 4,
+  host: process.env.EMAIL_HOST || "smtp.gmail.com",
+  port: Number(process.env.EMAIL_PORT || 587),
+  secure: String(process.env.EMAIL_SECURE || "false") === "true",
+  requireTLS: true,
+  connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT || 15000),
+  greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT || 10000),
+  socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT || 20000),
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
