@@ -6,9 +6,10 @@ const routes = require('./routes');
 const { errorHandler } = require('./middlewares/error.middleware');
 
 const app = express();
+
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://vroomshare-frontend.vercel.app/",
+  "https://vroomshare-frontend.vercel.app",
   "https://vroomshare.vercel.app"
 ];
 app.use(cors({ 
