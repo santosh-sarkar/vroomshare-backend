@@ -1,16 +1,125 @@
+const Booking = require('../models/booking.model');
+const Vehicle = require('../models/vehicle.model');
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+function daysBetween(start, end) {
+  const s = new Date(start);
+  const e = new Date(end);
+  const diff = Math.ceil((e - s) / MS_PER_DAY);
+  return diff > 0 ? diff : 0;
+}
+
+// Create a booking (renter)
 async function create(req, res, next) {
   try {
-    res.status(201).json({ ok: true, booking: req.body });
-  } catch (e) {
-    next(e);
-  }
-}
-async function get(req, res, next) {
-  try {
-    res.json({ ok: true, booking: { id: req.params.id } });
+    const renterId = req.user && (req.user._id || req.user.sub);
+    const { vehicleId, startDate, endDate } = req.body;
+
+    if (!renterId) return res.status(401).json({ message: 'Authentication required' });
+    if (!vehicleId || !startDate || !endDate) return res.status(400).json({ message: 'vehicleId, startDate and endDate are required' });
+
+    const vehicle = await Vehicle.findById(vehicleId);
+    if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
+    if (!vehicle.availability) return res.status(400).json({ message: 'Vehicle not available' });
+
+    // Check overlapping bookings (pending or confirmed)
+    const overlapping = await Booking.findOne({
+      vehicleId,
+      status: { $in: ['pending', 'confirmed'] },
+      $or: [
+        { startDate: { $lte: new Date(endDate) }, endDate: { $gte: new Date(startDate) } }
+      ]
+    });
+    if (overlapping) return res.status(400).json({ message: 'Vehicle already booked for given dates' });
+
+    const nights = daysBetween(startDate, endDate);
+    if (nights <= 0) return res.status(400).json({ message: 'Invalid date range' });
+
+    const totalPrice = nights * (vehicle.pricePerDay || 0);
+
+    const booking = await Booking.create({
+      vehicleId,
+      renterId,
+      ownerId: vehicle.ownerId,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      totalPrice,
+      status: 'pending',
+      paymentStatus: 'pending'
+    });
+
+    res.status(201).json({ ok: true, booking });
   } catch (e) {
     next(e);
   }
 }
 
-module.exports = { create, get };
+// Get booking by id (renter/owner/admin)
+async function get(req, res, next) {
+  try {
+    const booking = await Booking.findById(req.params.id).populate('vehicleId');
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const authUserId = req.user && (req.user._id || req.user.sub);
+    const role = req.user && req.user.role;
+    if (role !== 'admin' && authUserId) {
+      const isOwner = booking.ownerId && booking.ownerId.toString() === authUserId.toString();
+      const isRenter = booking.renterId && booking.renterId.toString() === authUserId.toString();
+      if (!isOwner && !isRenter && role !== 'admin') return res.status(403).json({ message: 'Access forbidden' });
+    }
+
+    res.json({ ok: true, booking });
+  } catch (e) { next(e); }
+}
+
+// Get bookings for renter
+async function renterBookings(req, res, next) {
+  try {
+    const renterId = req.user && (req.user._id || req.user.sub);
+    if (!renterId) return res.status(401).json({ message: 'Authentication required' });
+    const bookings = await Booking.find({ renterId }).sort({ createdAt: -1 });
+    res.json({ ok: true, total: bookings.length, bookings });
+  } catch (e) { next(e); }
+}
+
+// Get bookings for owner
+async function ownerBookings(req, res, next) {
+  try {
+    const ownerId = req.user && (req.user._id || req.user.sub);
+    if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
+    const bookings = await Booking.find({ ownerId }).sort({ createdAt: -1 });
+    res.json({ ok: true, total: bookings.length, bookings });
+  } catch (e) { next(e); }
+}
+
+// Update booking status (owner actions)
+async function update(req, res, next) {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const authUserId = req.user && (req.user._id || req.user.sub);
+    if (!authUserId || (booking.ownerId && booking.ownerId.toString() !== authUserId.toString())) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const { action } = req.body; // expected values: confirm, cancel, complete
+    if (!action) return res.status(400).json({ message: 'action is required' });
+
+    if (action === 'confirm') {
+      booking.status = 'confirmed';
+    } else if (action === 'cancel') {
+      booking.status = 'cancelled';
+    } else if (action === 'complete') {
+      booking.status = 'completed';
+    } else {
+      return res.status(400).json({ message: 'Invalid action' });
+    }
+
+    await booking.save();
+    res.json({ ok: true, booking });
+  } catch (e) { next(e); }
+}
+
+module.exports = { create, get, renterBookings, ownerBookings, update };
