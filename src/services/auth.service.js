@@ -7,6 +7,7 @@ const {
 const { generateVerificationCode, getVerificationCodeExpiration } = require("../utils/verification");
 const { storeSignupData, verifySignupCode, clearSignupData } = require("../utils/signupStore");
 const { sendVerificationEmail } = require("./email.service");
+const User = require("../models/users/user.model");
 const owner = require("../models/users/owner.model");
 const renter = require("../models/users/renter.model");
 
@@ -32,9 +33,13 @@ async function verifyPassword(password, hash) {
 
 // Find user by email from both owner and renter collections
 async function findUserByEmail(email) {
+  // Check specific discriminators first (owner/renter), then fall back to base User (admin or others)
   let user = await owner.findOne({ email });
   if (!user) {
     user = await renter.findOne({ email });
+  }
+  if (!user) {
+    user = await User.findOne({ email });
   }
   return user;
 }
