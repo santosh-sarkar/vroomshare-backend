@@ -1,4 +1,5 @@
 const Vehicle = require("../models/vehicle.model");
+const Review = require("../models/review.model");
 async function list(req, res, next) {
   try {
     const {
@@ -70,7 +71,10 @@ async function get(req, res, next) {
   try {
     const vehicle = await Vehicle.findById(req.params.id).populate("ownerId", "name email");
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-    res.json({ ok: true, vehicle });
+
+    const reviews = await Review.find({ vehicleId: vehicle._id }).sort({ createdAt: -1 });
+
+    res.json({ ok: true, vehicle, totalReviews: reviews.length, reviews });
   } catch (e) {
     next(e);
   }

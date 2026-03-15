@@ -33,7 +33,7 @@ Below is a **structured `.md` file** you can give to **GitHub Copilot** so it ca
 * **Backend:** Node.js + Express
 * **Database:** MongoDB
 * **Auth:** JWT
-* **Payments:** Khalti / eSewa
+* **Payments:** dummy payment 
 * **Architecture:** MVC (controllers, models, routes)
 
 ---
