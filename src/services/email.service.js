@@ -1,51 +1,58 @@
-const nodemailer = require("nodemailer");
+const nodemailer = require('nodemailer');
 
-// Create transporter - configure with your email provider
-const transporter = nodemailer.createTransport({
-  service: process.env.EMAIL_SERVICE || "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-});
+async function sendVerificationEmail(email, verificationCode, userName = 'User') {
+	const user = process.env.EMAIL_USER;
+	const pass = process.env.EMAIL_PASSWORD;
+	if (!user || !pass) {
+		const msg = 'Email SMTP not configured (EMAIL_USER and EMAIL_PASS required)';
+		console.error(msg);
+		throw new Error(msg);
+	}
 
-/**
- * Send verification code to email
- */
-async function sendVerificationEmail(email, verificationCode, userName = "User") {
-  try {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-      to: email,
-      subject: "VroomShare - Email Verification Code",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
-          <h2>Welcome to VroomShare!</h2>
-          <p>Hi ${userName},</p>
-          <p>Thank you for registering. Please use the verification code below to confirm your email:</p>
-          
-          <div style="background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; text-align: center;">
-            <h1 style="letter-spacing: 5px; color: #333;">${verificationCode}</h1>
-          </div>
-          
-          <p style="color: #666; font-size: 14px;">
-            This code is valid for 10 minutes. Do not share this code with anyone.
-          </p>
-          
-          <p>If you didn't create this account, please ignore this email.</p>
-          
-          <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px;">VroomShare Team</p>
-        </div>
-      `,
-    };
+	const subject = 'Verify Your Email - VroomShare';
+	const html = `
+		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+			<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center;">
+				<h1 style="color: white; margin: 0;">VroomShare</h1>
+			</div>
+			<div style="padding: 30px; background-color: #f9f9f9;">
+				<h2 style="color: #333;">Hello ${userName},</h2>
+				<p style="color: #666; font-size: 16px;">Please use the following OTP to verify your email:</p>
+				<div style="background-color: #fff; border: 2px solid #667eea; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+					<span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #667eea;">${verificationCode}</span>
+				</div>
+				<p style="color: #666; font-size: 14px;">This OTP will expire in <strong>10 minutes</strong>.</p>
+			</div>
+		</div>
+	`;
 
-    await transporter.sendMail(mailOptions);
-    return { success: true, message: "Verification email sent successfully" };
-  } catch (err) {
-    console.error("Email sending error:", err);
-    throw new Error(`Failed to send verification email: ${err.message}`);
-  }
+	try {
+		const transporter = nodemailer.createTransport({
+			service: process.env.EMAIL_SERVICE,
+			auth: { user, pass },
+		});
+
+		const info = await transporter.sendMail({
+			from: user,
+			to: email,
+			subject,
+			html,
+		});
+
+		// Verify nodemailer accepted recipients
+		const accepted = Array.isArray(info.accepted) ? info.accepted : [];
+		if (accepted.length === 0) {
+			const msg = 'Email was not accepted by SMTP server';
+			console.error('sendVerificationEmail:', msg, { accepted, rejected: info.rejected, response: info.response });
+			throw new Error(msg);
+		}
+
+		return { success: true, message: 'Verification email sent via SMTP', info: { accepted, rejected: info.rejected, response: info.response, messageId: info.messageId } };
+	} catch (err) {
+		console.error('sendVerificationEmail error:', err && err.message ? err.message : err);
+		throw err instanceof Error ? err : new Error(err && err.message ? err.message : String(err));
+	}
 }
 
 module.exports = { sendVerificationEmail };
+

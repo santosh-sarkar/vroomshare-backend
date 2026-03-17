@@ -77,8 +77,11 @@ async function sendVerificationCodeForSignup(email, name = "User") {
     // Store code temporarily in memory
     storeSignupData(email, {}, verificationCode, expiresAt);
 
-    // Send verification email
-    await sendVerificationEmail(email, verificationCode, name);
+    // Send verification email and ensure it was delivered
+    const emailResult = await sendVerificationEmail(email, verificationCode, name);
+    if (!emailResult || emailResult.success !== true) {
+      throw new Error(`Failed to send verification code: ${emailResult && emailResult.message ? emailResult.message : 'unknown error'}`);
+    }
 
     return {
       success: true,
@@ -117,8 +120,11 @@ async function initiateSignup(email, password, role, userData) {
     };
     storeSignupData(email, dataToStore, verificationCode, expiresAt);
 
-    // Send verification email
-    await sendVerificationEmail(email, verificationCode, userData.name || "User");
+    // Send verification email and ensure it was delivered
+    const emailResult = await sendVerificationEmail(email, verificationCode, userData.name || "User");
+    if (!emailResult || emailResult.success !== true) {
+      throw new Error(`Failed to send verification code: ${emailResult && emailResult.message ? emailResult.message : 'unknown error'}`);
+    }
 
     return {
       success: true,
@@ -216,8 +222,11 @@ async function generateAndSendVerificationCode(user) {
     user.emailVerificationCodeExpires = expiresAt;
     await user.save();
 
-    // Send verification email
-    await sendVerificationEmail(user.email, verificationCode, user.name);
+    // Send verification email and ensure it was delivered
+    const emailResult = await sendVerificationEmail(user.email, verificationCode, user.name);
+    if (!emailResult || emailResult.success !== true) {
+      throw new Error(`Failed to send verification code: ${emailResult && emailResult.message ? emailResult.message : 'unknown error'}`);
+    }
 
     return {
       success: true,

@@ -16,3 +16,7 @@ npm install
 ```bash
 npm run dev
 ```
+
+Email sending (Render)
+
+If your backend is hosted on Render (which blocks outbound SMTP), use a Vercel serverless function to send email via Gmail SMTP. See [docs/VERCEL_SEND_EMAIL.md](docs/VERCEL_SEND_EMAIL.md) for details.

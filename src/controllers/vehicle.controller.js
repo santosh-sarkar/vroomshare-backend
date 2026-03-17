@@ -43,24 +43,71 @@ async function list(req, res, next) {
 async function create(req, res, next) {
   try {
     const authUserId = req.user && (req.user._id || req.user.sub);
-    const ownerId = authUserId || req.body.ownerId || req.body.owner;
-    const { title, description, vehicleType, location, pricePerDay, images, availability } = req.body;
-
-    if (!ownerId || !title || !pricePerDay) {
-      return res.status(400).json({ message: 'ownerId, title and pricePerDay are required' });
-    }
-
-    const vehicle = await Vehicle.create({
-      ownerId,
+    const owner = authUserId || req.body.ownerId || req.body.owner;
+    // Accept fields matching the updated Vehicle model, but be forgiving to older names
+    const {
       title,
       description,
+      features,
       vehicleType,
+      type,
+      brand,
+      model: modelName,
+      year,
+      engineCc,
+      registrationNumber,
       location,
-      pricePerDay,
-      images: images || [],
+      pricing,
+      images,
+      availability,
+    } = req.body;
+
+    // minimal validation
+    const dailyRate =  (pricing && pricing.dailyRate);
+
+    if (!owner || !dailyRate) {
+      return res.status(400).json({ message: 'owner and dailyRate (pricePerDay) are required' });
+    }
+
+    const newVehicle = {
+      owner,
+      title,
+      description,
+      features,
+      status: 'draft',
+      type: type || vehicleType,
+      brand,
+      model: modelName,
+      year,
+      engineCc,
+      registrationNumber,
+      pickup: location || {},
+      pricing: pricing || { dailyRate: Number(dailyRate) },
+      photos: Array.isArray(images) ? images : [],
       availability: availability !== undefined ? availability : true,
-    });
-    res.status(201).json({ ok: true, vehicle });
+    };
+
+    // If multer uploaded a file (via route middleware), attach its Cloudinary URL
+    if (req.file) {
+      // multer-storage-cloudinary exposes `path` and `filename`
+      const url = req.file.path || (req.file.secure_url || null);
+      const public_id = req.file.filename || req.file.public_id || null;
+      if (url) newVehicle.photos.push(url);
+      // save a reference to last uploaded image meta if desired
+      if (public_id) newVehicle.lastImagePublicId = public_id;
+    }
+
+    const vehicle = await Vehicle.create(newVehicle);
+
+    const resp = { ok: true, vehicle };
+    if (req.file) {
+      resp.upload = {
+        url: req.file.path || req.file.secure_url,
+        public_id: req.file.filename || req.file.public_id,
+      };
+    }
+
+    res.status(201).json(resp);
   } catch (e) {
     next(e);
   }
@@ -100,8 +147,20 @@ async function update(req, res, next) {
     }
 
     Object.assign(vehicle, patch);
+    // If a new image was uploaded, add to photos array
+    if (req.file) {
+      const url = req.file.path || req.file.secure_url || null;
+      const public_id = req.file.filename || req.file.public_id || null;
+      if (url) {
+        if (!Array.isArray(vehicle.photos)) vehicle.photos = [];
+        vehicle.photos.push(url);
+      }
+      if (public_id) vehicle.lastImagePublicId = public_id;
+    }
     await vehicle.save();
-    res.json({ ok: true, vehicle });
+    const resp = { ok: true, vehicle };
+    if (req.file) resp.upload = { url: req.file.path || req.file.secure_url, public_id: req.file.filename || req.file.public_id };
+    res.json(resp);
   } catch (e) { next(e); }
 }
 
