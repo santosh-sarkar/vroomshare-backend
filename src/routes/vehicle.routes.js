@@ -7,7 +7,7 @@ const createImageUploader = require('../utils/imageUploader');
 // Uploader for vehicle images (parses multipart/form-data fields too)
 const vehicleUpload = createImageUploader('vehicles');
 
-router.get('/vehicles', controller.list);
+router.get('/', controller.list);
 router.get('/owner', authenticateToken, authorizeRole('owner'), controller.ownerVehicles);
 // Use multer middleware to parse multipart/form-data (file + fields)
 router.post('/', authenticateToken, authorizeRole('owner'), vehicleUpload.single('image'), controller.create);
