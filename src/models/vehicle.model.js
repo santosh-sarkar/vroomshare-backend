@@ -15,7 +15,6 @@ const VehicleSchema = new Schema({
   year: { type: Number },
 
   // Vehicle description and features
-  title: { type: String, required: true },
   description: { type: String, required: true },
   features: { type: [String], default: [] },
 

@@ -42,74 +42,127 @@ async function list(req, res, next) {
 
 async function create(req, res, next) {
   try {
+    // Get owner
     const authUserId = req.user && (req.user._id || req.user.sub);
     const owner = authUserId || req.body.ownerId || req.body.owner;
-    // Accept fields matching the updated Vehicle model, but be forgiving to older names
-    const {
-      title,
-      description,
-      features,
+
+    // Extract fields from FormData
+    let {
       vehicleType,
-      type,
       brand,
-      model: modelName,
-      year,
-      engineCc,
+      modelName,
+      yearOfManufacture,
+      engineCapacity,
       registrationNumber,
-      location,
-      pricing,
-      images,
-      availability,
+      pickupLocation,
+      dailyRate,
+      description,
+      features
     } = req.body;
 
-    // minimal validation
-    const dailyRate =  (pricing && pricing.dailyRate);
-
-    if (!owner || !dailyRate) {
-      return res.status(400).json({ message: 'owner and dailyRate (pricePerDay) are required' });
+    //  Parse JSON fields (IMPORTANT)
+    let pickup = {};
+    if (pickupLocation) {
+      try {
+        pickup = JSON.parse(pickupLocation);
+      } catch (err) {
+        return res.status(400).json({ message: "Invalid pickupLocation JSON" });
+      }
     }
 
+    // Convert types
+    dailyRate = Number(dailyRate);
+    const year = yearOfManufacture ? Number(yearOfManufacture) : undefined;
+    const engineCc = engineCapacity ? Number(engineCapacity) : undefined;
+
+    // features can be string or array
+    if (typeof features === "string") {
+      try {
+        features = JSON.parse(features); // if sent as JSON string
+      } catch {
+        features = [features]; // fallback
+      }
+    }
+
+    // ✅ Validation
+    if (!owner || !vehicleType || !brand || !modelName || !dailyRate || !description) {
+      return res.status(400).json({
+        message: "Required fields missing"
+      });
+    }
+
+    // Normalize and validate vehicle type against model enum
+    const allowedTypes = ['motorcycle', 'scooter', 'electric'];
+    const normalizedType = vehicleType ? vehicleType.toString().trim().toLowerCase() : '';
+    if (!allowedTypes.includes(normalizedType)) {
+      return res.status(400).json({ message: `Invalid vehicle type. Allowed: ${allowedTypes.join(', ')}` });
+    }
+
+    // ✅ Handle file uploads
+    const photos = [];
+    const documents = [];
+
+    if (req.files) {
+      // vehicle images
+      if (req.files.vehicleImages) {
+        req.files.vehicleImages.forEach(file => {
+          photos.push(file.path); // Cloudinary URL
+        });
+      }
+
+      // document images
+      if (req.files.documentImages) {
+        req.files.documentImages.forEach(file => {
+          documents.push({
+            type: "other",
+            url: file.path,
+            verified: false
+          });
+        });
+      }
+    }
+
+    // Create vehicle object
     const newVehicle = {
       owner,
-      title,
-      description,
-      features,
-      status: 'draft',
-      type: type || vehicleType,
+      type: normalizedType,
       brand,
       model: modelName,
       year,
       engineCc,
       registrationNumber,
-      pickup: location || {},
-      pricing: pricing || { dailyRate: Number(dailyRate) },
-      photos: Array.isArray(images) ? images : [],
-      availability: availability !== undefined ? availability : true,
+      description,
+      features: features || [],
+
+      pickup: {
+        neighborhood: pickup.city || "",
+        address: pickup.ward || "",
+        coordinates: [
+          pickup.coordinates?.lng || 0,
+          pickup.coordinates?.lat || 0
+        ]
+      },
+
+      pricing: {
+        dailyRate
+      },
+
+      photos,
+      documents,
+
+      status: "draft"
     };
 
-    // If multer uploaded a file (via route middleware), attach its Cloudinary URL
-    if (req.file) {
-      // multer-storage-cloudinary exposes `path` and `filename`
-      const url = req.file.path || (req.file.secure_url || null);
-      const public_id = req.file.filename || req.file.public_id || null;
-      if (url) newVehicle.photos.push(url);
-      // save a reference to last uploaded image meta if desired
-      if (public_id) newVehicle.lastImagePublicId = public_id;
-    }
-
+    //  Save to DB
     const vehicle = await Vehicle.create(newVehicle);
 
-    const resp = { ok: true, vehicle };
-    if (req.file) {
-      resp.upload = {
-        url: req.file.path || req.file.secure_url,
-        public_id: req.file.filename || req.file.public_id,
-      };
-    }
+    res.status(201).json({
+      ok: true,
+      vehicle
+    });
 
-    res.status(201).json(resp);
-  } catch (e) {
-    next(e);
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -128,13 +181,26 @@ async function get(req, res, next) {
 }
 async function update(req, res, next) {
   try {
-    const allowed = ['title','description','vehicleType','location','pricePerDay','images','availability','isVerified'];
+    const allowed = ['title','description','vehicleType','type','location','pricePerDay','pricing','images','availability','isVerified','brand','model','year','engineCc','registrationNumber','documents'];
     const patch = {};
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(req.body, key)) patch[key] = req.body[key];
     }
 
-    if (Object.keys(patch).length === 0) {
+    // map vehicleType -> type and normalize
+    const allowedTypes = ['motorcycle', 'scooter', 'electric'];
+    if (Object.prototype.hasOwnProperty.call(req.body, 'vehicleType') || Object.prototype.hasOwnProperty.call(req.body, 'type')) {
+      const incoming = Object.prototype.hasOwnProperty.call(req.body, 'vehicleType') ? req.body.vehicleType : req.body.type;
+      const normalized = incoming ? incoming.toString().trim().toLowerCase() : '';
+      if (!allowedTypes.includes(normalized)) {
+        return res.status(400).json({ message: `Invalid vehicle type. Allowed: ${allowedTypes.join(', ')}` });
+      }
+      patch.type = normalized;
+      // remove vehicleType if present to avoid confusion
+      delete patch.vehicleType;
+    }
+
+    if (Object.keys(patch).length === 0 && !req.file && !req.files) {
       return res.status(400).json({ message: 'No valid fields to update' });
     }
 

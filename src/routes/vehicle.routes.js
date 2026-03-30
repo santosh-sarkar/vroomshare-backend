@@ -10,7 +10,10 @@ const vehicleUpload = createImageUploader('vehicles');
 router.get('/', controller.list);
 router.get('/owner', authenticateToken, authorizeRole('owner'), controller.ownerVehicles);
 // Use multer middleware to parse multipart/form-data (file + fields)
-router.post('/', authenticateToken, authorizeRole('owner'), vehicleUpload.single('image'), controller.create);
+router.post('/', authenticateToken, authorizeRole('owner'), vehicleUpload.fields([
+    { name: 'vehicleImages', maxCount: 5 },
+    { name: 'documentImages', maxCount: 5 }
+  ]), controller.create);
 router.get('/:id', controller.get);
 router.patch('/:id', authenticateToken, authorizeRole('owner'), controller.update);
 router.delete('/:id', authenticateToken, authorizeRole('owner'), controller.remove);
