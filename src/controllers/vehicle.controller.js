@@ -131,7 +131,7 @@ async function create(req, res, next) {
       year,
       engineCc,
       registrationNumber,
-      description,
+      description: description || "description",
       features: features || [],
 
       pickup: {
