@@ -327,7 +327,7 @@ async function ownerVehicles(req, res, next) {
     const ownerId = authUserId || req.query.ownerId;
     if (!ownerId)
       return res.status(400).json({ message: "ownerId is required" });
-    const vehicles = await Vehicle.find({ ownerId });
+    const vehicles = await Vehicle.find({  owner: ownerId }).sort({ createdAt: -1 });
     res.json({ ok: true, total: vehicles.length, vehicles });
   } catch (e) {
     next(e);
