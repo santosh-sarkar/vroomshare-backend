@@ -1,6 +1,7 @@
 const Vehicle = require("../models/vehicle.model");
 const Review = require("../models/review.model");
 const mongoose = require("mongoose");
+
 async function list(req, res, next) {
   try {
     const {
@@ -18,7 +19,12 @@ async function list(req, res, next) {
     const query = {};
     if (ownerId) query.ownerId = ownerId;
     if (vehicleType) query.vehicleType = vehicleType;
-    if (location) query.location = location;
+    if (location) {
+      query["pickup.neighborhood"] = {
+        $regex: location.trim(),
+        $options: "i",
+      };
+    }
     if (availability !== undefined)
       query.availability = availability === "true";
     if (priceMin || priceMax) query.pricePerDay = {};
@@ -109,12 +115,10 @@ async function create(req, res, next) {
     const allowedTypes = ["motorcycle", "scooter", "electric"];
     const normalizedType = vehicleType.toString().trim().toLowerCase();
     if (!allowedTypes.includes(normalizedType))
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
-        });
+      return res.status(400).json({
+        ok: false,
+        message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
+      });
     if (yearOfManufacture && isNaN(year))
       return res
         .status(400)
@@ -244,11 +248,9 @@ async function update(req, res, next) {
         ? incoming.toString().trim().toLowerCase()
         : "";
       if (!allowedTypes.includes(normalized)) {
-        return res
-          .status(400)
-          .json({
-            message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
-          });
+        return res.status(400).json({
+          message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
+        });
       }
       patch.type = normalized;
       // remove vehicleType if present to avoid confusion
@@ -327,7 +329,9 @@ async function ownerVehicles(req, res, next) {
     const ownerId = authUserId || req.query.ownerId;
     if (!ownerId)
       return res.status(400).json({ message: "ownerId is required" });
-    const vehicles = await Vehicle.find({  owner: ownerId }).sort({ createdAt: -1 });
+    const vehicles = await Vehicle.find({ owner: ownerId }).sort({
+      createdAt: -1,
+    });
     res.json({ ok: true, total: vehicles.length, vehicles });
   } catch (e) {
     next(e);
