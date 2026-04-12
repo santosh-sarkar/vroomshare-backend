@@ -3,14 +3,13 @@ const User = require("./user.model");
 
 const renterSchema = new mongoose.Schema({
   //what renter should keep
-  phone: { type: String },
-  address: { type: String },
   licenseNumber: { type: String },
-  citizenshipNumber: { type: String },
-  image:{
-    citizenship: { type: String },
-    license: { type: String },
-    profile: { type: String },
+  citizenshipNo: { type: String },
+  image: {
+    citizenshipFrontPhoto: { type: String },
+    citizenshipBackPhoto: { type: String },
+    licensePhoto: { type: String },
+    selfiePhoto: { type: String },
   },
   isVerified: { type: Boolean, default: false },
   rating: { type: Number, default: 0 },

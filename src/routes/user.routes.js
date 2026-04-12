@@ -1,8 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/user.controller');
+const { authenticateToken } = require('../middlewares/auth.middleware');
+const createImageUploader = require('../utils/imageUploader');
 
-router.get('/', controller.list);
-router.get('/:id', controller.get);
+// Uploader for images (parses multipart/form-data fields too)
+const userUpload = createImageUploader('users');
+const uploadKYC = userUpload.fields([
+  { name: "citizenshipFrontPhoto", maxCount: 1 },
+  { name: "citizenshipBackPhoto", maxCount: 1 },
+  { name: "licensePhoto", maxCount: 1 },
+  { name: "selfiePhoto", maxCount: 1 },
+]);
+
+router.get('/profile/',authenticateToken, controller.getProfile);
+router.put('/profile/', authenticateToken, uploadKYC, controller.updateProfile);
 
 module.exports = router;

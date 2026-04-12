@@ -3,14 +3,9 @@ const User = require("./user.model");
 
 const ownerSchema = new mongoose.Schema({
   //what owner should keep
-  phone: { type: String},
-  address: { type: String },
-  bluebookNumber: { type: String },
-  vechicleNumber: { type: String },
-  insuranceNumber: { type: String },
   image: {
-    bikeImage: { type: String },
-    bluebook: { type: String },
+    citizenshipFront: { type: String },
+    citizenshipBack: { type: String },
     profile: { type: String },
   },
   isVerified: { type: Boolean, default: false },
