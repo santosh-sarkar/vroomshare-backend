@@ -58,11 +58,7 @@ async function verifyAndRegister(req, res, next) {
     res.status(201).json({
       ok: true,
       msg: "Registration successful",
-      user: {
-        userId: user._id,
-        email: user.email,
-        role: user.role,
-      },
+      user: user,
     });
   } catch (err) {
     if (
@@ -95,6 +91,11 @@ async function login(req, res, next) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Remove password and __v
+    const userObj = user.toObject();
+    delete userObj.password;
+    delete userObj.__v;
+
     // Generate and set tokens
     const { accessToken, refreshToken } = generateUserTokens(
       user._id,
@@ -105,11 +106,7 @@ async function login(req, res, next) {
     res.status(200).json({
       ok: true,
       msg: "login successful",
-      user: {
-        userId: user._id,
-        email: user.email,
-        role: user.role,
-      },
+      user: userObj,
     });
   } catch (err) {
     next(err);

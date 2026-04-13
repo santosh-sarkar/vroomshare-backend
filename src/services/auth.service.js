@@ -155,7 +155,7 @@ async function completeSignup(email, code) {
     const user = await UserModel.create({
       ...signupData,
       isEmailVerified: true,
-    });
+    }).select("-password -__v");;
 
     // Clear signup data
     clearSignupData(email);
