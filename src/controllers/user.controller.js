@@ -4,14 +4,21 @@ const { getUserModel } = require("../services/auth.service");
 async function getProfile(req, res, next) {
   try {
     const { sub, role } = req.user || {};
-    console.log(sub);
+    if (!sub || !mongoose.Types.ObjectId.isValid(sub))
+      return res
+        .status(400)
+        .json({ ok: false, message: "Invalid or missing user ID" });
+
     // Get user model
     const UserModel = getUserModel(role);
     if (!UserModel) {
       throw new Error("Invalid role");
     }
-    
-    res.json({ ok: true, user: [] });
+
+    const profile = await UserModel.findById(sub).select('-password -__v');
+    if(!profile) return res.status(400).json({ok:false, message:"user not found!"})
+
+    res.json({ ok: true, user:profile});
   } catch (err) {
     next(err);
   }
@@ -22,9 +29,9 @@ async function updateProfile(req, res, next) {
     const { role, sub } = req.user || {};
 
     if (!sub || !mongoose.Types.ObjectId.isValid(sub))
-          return res
-            .status(400)
-            .json({ ok: false, message: "Invalid or missing user ID" });
+      return res
+        .status(400)
+        .json({ ok: false, message: "Invalid or missing user ID" });
 
     // Get user model
     const UserModel = getUserModel(role);
@@ -39,17 +46,32 @@ async function updateProfile(req, res, next) {
     let address = {};
     if (req.body && req.body.address) {
       try {
-        address = typeof req.body.address === "string" ? JSON.parse(req.body.address) : req.body.address;
+        address =
+          typeof req.body.address === "string"
+            ? JSON.parse(req.body.address)
+            : req.body.address;
       } catch (e) {
         // fallback to empty object if parse fails
         address = {};
       }
     } else {
       address = {
-        province: req.body["address[province]"] || req.body["address.province"] || undefined,
-        district: req.body["address[district]"] || req.body["address.district"] || undefined,
-        municipality: req.body["address[municipality]"] || req.body["address.municipality"] || undefined,
-        wardNo: req.body["address[wardNo]"] || req.body["address.wardNo"] || undefined,
+        province:
+          req.body["address[province]"] ||
+          req.body["address.province"] ||
+          undefined,
+        district:
+          req.body["address[district]"] ||
+          req.body["address.district"] ||
+          undefined,
+        municipality:
+          req.body["address[municipality]"] ||
+          req.body["address.municipality"] ||
+          undefined,
+        wardNo:
+          req.body["address[wardNo]"] ||
+          req.body["address.wardNo"] ||
+          undefined,
       };
     }
 
@@ -93,8 +115,10 @@ async function updateProfile(req, res, next) {
       if (profileUrl) images.profile = profileUrl;
       if (Object.keys(images).length) updateData.image = images;
     } else if (role === "renter") {
-      if (citizenshipNo) updateData.citizenshipNo = String(citizenshipNo).trim();
-      if (licenseNumber) updateData.licenseNumber = String(licenseNumber).trim();
+      if (citizenshipNo)
+        updateData.citizenshipNo = String(citizenshipNo).trim();
+      if (licenseNumber)
+        updateData.licenseNumber = String(licenseNumber).trim();
       const images = {};
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
@@ -108,12 +132,18 @@ async function updateProfile(req, res, next) {
     }
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ ok: false, message: "No valid fields to update" });
+      return res
+        .status(400)
+        .json({ ok: false, message: "No valid fields to update" });
     }
 
     // Perform update
-    const updated = await UserModel.findByIdAndUpdate(sub, updateData, { new: true, runValidators: true }).select("-password -__v");
-    if (!updated) return res.status(404).json({ ok: false, message: "User not found" });
+    const updated = await UserModel.findByIdAndUpdate(sub, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password -__v");
+    if (!updated)
+      return res.status(404).json({ ok: false, message: "User not found" });
 
     res.json({ ok: true, user: updated });
   } catch (err) {
