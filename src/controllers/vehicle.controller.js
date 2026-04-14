@@ -12,7 +12,7 @@ async function list(req, res, next) {
       priceMax,
       availability,
       page = 1,
-      limit = 20,
+      limit = 10,
       sort,
     } = req.query;
 
@@ -192,7 +192,7 @@ module.exports = { create };
 async function get(req, res, next) {
   try {
     const vehicle = await Vehicle.findById(req.params.id).populate(
-      "ownerId",
+      "owner",
       "name email",
     );
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
