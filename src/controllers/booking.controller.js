@@ -4,8 +4,8 @@ const Vehicle = require('../models/vehicle.model');
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 function daysBetween(start, end) {
-  const s = new Date(start);
-  const e = new Date(end);
+  const s = new Date(start + "T00:00:00");
+  const e = new Date(end + "T00:00:00");
   const diff = Math.ceil((e - s) / MS_PER_DAY);
   return diff > 0 ? diff : 0;
 }
@@ -16,40 +16,59 @@ async function create(req, res, next) {
     const renterId = req.user && (req.user._id || req.user.sub);
     const { vehicleId, startDate, endDate } = req.body;
 
-    if (!renterId) return res.status(401).json({ message: 'Authentication required' });
-    if (!vehicleId || !startDate || !endDate) return res.status(400).json({ message: 'vehicleId, startDate and endDate are required' });
+    console.log(renterId,vehicleId,startDate,endDate);
+
+    if (!renterId)
+      return res.status(401).json({ message: 'please login first' });
+
+    if (!vehicleId || !startDate || !endDate)
+      return res.status(400).json({ message: 'vehicleId, startDate and endDate are required' });
 
     const vehicle = await Vehicle.findById(vehicleId);
-    if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
-    if (!vehicle.availability) return res.status(400).json({ message: 'Vehicle not available' });
+    if (!vehicle)
+      return res.status(404).json({ message: 'Vehicle not found' });
 
-    // Check overlapping bookings (pending or confirmed)
+    // if (!vehicle.availability)
+    //   return res.status(400).json({ message: 'Vehicle not available' });
+
+    // SAFE DATE NORMALIZATION
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start >= end) {
+      return res.status(400).json({ message: "Invalid date range" });
+    }
+
+    // OVERLAP CHECK (correct)
     const overlapping = await Booking.findOne({
       vehicleId,
-      status: { $in: ['pending', 'confirmed'] },
-      $or: [
-        { startDate: { $lte: new Date(endDate) }, endDate: { $gte: new Date(startDate) } }
-      ]
+      status: { $in: ['approved', 'confirmed'] },
+      startDate: { $lt: end },
+      endDate: { $gt: start }
     });
-    if (overlapping) return res.status(400).json({ message: 'Vehicle already booked for given dates' });
 
-    const nights = daysBetween(startDate, endDate);
-    if (nights <= 0) return res.status(400).json({ message: 'Invalid date range' });
+    if (overlapping) {
+      return res.status(400).json({ message: 'Vehicle already booked for given dates' });
+    }
+
+    // SAFE NIGHT CALCULATION
+    const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
 
     const totalPrice = nights * (vehicle.pricePerDay || 0);
 
     const booking = await Booking.create({
       vehicleId,
       renterId,
-      ownerId: vehicle.ownerId,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
+      ownerId: vehicle.owner,
+      startDate: start,
+      endDate: end,
       totalPrice,
-      status: 'pending',
+      status: 'requested',
       paymentStatus: 'pending'
     });
 
-    res.status(201).json({ ok: true, booking });
+    res.status(201).json({ ok: true, msg: 'Booking created successfully', booking });
+
   } catch (e) {
     next(e);
   }

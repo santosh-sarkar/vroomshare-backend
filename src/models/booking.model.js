@@ -9,8 +9,8 @@ const BookingSchema = new mongoose.Schema({
   totalPrice: { type: Number, required: true },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
-    default: 'pending'
+    enum: ['requested', 'approved', 'confirmed', 'cancelled', 'completed'],
+    default: 'requested'
   },
   paymentStatus: {
     type: String,
