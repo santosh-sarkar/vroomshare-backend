@@ -9,7 +9,7 @@ const renterSchema = new mongoose.Schema({
     citizenshipFrontPhoto: { type: String },
     citizenshipBackPhoto: { type: String },
     licensePhoto: { type: String },
-    selfiePhoto: { type: String },
+    profile: { type: String },
   },
   isVerified: { type: Boolean, default: false },
   rating: { type: Number, default: 0 },

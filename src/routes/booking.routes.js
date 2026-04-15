@@ -16,6 +16,6 @@ router.get('/owner', authenticateToken, authorizeRole('owner'), controller.owner
 router.get('/:id', authenticateToken, controller.get);
 
 // Owner updates booking status
-router.put('/:id', authenticateToken, authorizeRole('owner'), controller.update);
+router.put('/:id/status', authenticateToken, authorizeRole('owner'), controller.update);
 
 module.exports = router;
