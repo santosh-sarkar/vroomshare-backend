@@ -56,8 +56,7 @@ async function create(req, res, next) {
 
     // SAFE NIGHT CALCULATION
     const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-
-    const totalPrice = nights * (vehicle.pricePerDay || 0);
+    const totalPrice = nights * (vehicle.pricing?.dailyRate  || 0);
 
     const booking = await Booking.create({
       vehicleId,
@@ -81,18 +80,28 @@ async function create(req, res, next) {
 // Get booking by id (renter/owner/admin)
 async function get(req, res, next) {
   try {
-    const booking = await Booking.findById(req.params.id).populate("vehicleId");
+    const authUserId = req.user && (req.user._id || req.user.sub);
+
+    const booking = await Booking.findById(req.params.id).populate({
+        path: "vehicle",
+        select: "model brand registrationNumber photos pricing",
+      })
+      .populate({
+        path: "renter",
+        select: "name image email createdAt",
+      });
+
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    const authUserId = req.user && (req.user._id || req.user.sub);
     const role = req.user && req.user.role;
+    console.log(role)
     if (role !== "admin" && authUserId) {
       const isOwner =
-        booking.ownerId && booking.ownerId.toString() === authUserId.toString();
+        booking.owner && booking.owner.toString() === authUserId.toString();
       const isRenter =
-        booking.renterId &&
-        booking.renterId.toString() === authUserId.toString();
-      if (!isOwner && !isRenter && role !== "admin")
+        booking.renter &&
+        booking.renter.toString() === authUserId.toString();
+      if (!isOwner && !isRenter )
         return res.status(403).json({ message: "Access forbidden" });
     }
 
@@ -159,7 +168,7 @@ async function update(req, res, next) {
     const { action } = req.body; // expected values: confirm, cancel, complete
     if (!action) return res.status(400).json({ message: "action is required" });
 
-    if (action === "approved") {
+    if (action === "approve") {
       booking.status = "approved";
     } else if (action === "cancel") {
       booking.status = "cancelled";
