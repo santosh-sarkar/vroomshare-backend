@@ -5,7 +5,7 @@ const paymentController = require('../controllers/payment.controller');
 
 // payment endpoints
 
-router.post("/pay/:bookingId",authenticateToken, authorizeRole('owner'), paymentController.payNow);
+router.post("/pay/:bookingId",authenticateToken, authorizeRole('renter'), paymentController.payNow);
 router.get("/success", paymentController.paymentSuccess);
 router.get("/failure", paymentController.paymentFailure);
 

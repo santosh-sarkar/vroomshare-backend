@@ -97,12 +97,12 @@ async function get(req, res, next) {
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     const role = req.user && req.user.role;
-    console.log(role);
+
     if (role !== "admin" && authUserId) {
       const isOwner =
-        booking.owner && booking.owner.toString() === authUserId.toString();
+        booking.owner && booking.owner._id.toString() === authUserId.toString();
       const isRenter =
-        booking.renter && booking.renter.toString() === authUserId.toString();
+        booking.renter && booking.renter._id.toString() === authUserId.toString();
       if (!isOwner && !isRenter)
         return res.status(403).json({ message: "Access forbidden" });
     }
