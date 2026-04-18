@@ -56,17 +56,19 @@ async function create(req, res, next) {
 
     // SAFE NIGHT CALCULATION
     const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-    const totalPrice = nights * (vehicle.pricing?.dailyRate  || 0);
+    const totalPrice = nights * (vehicle.pricing?.dailyRate || 0);
 
     const booking = await Booking.create({
-      vehicleId,
-      renterId,
-      ownerId: vehicle.owner,
+      vehicle,
+      renter,
+      owner: vehicle.owner,
       startDate: start,
       endDate: end,
       totalPrice,
       status: "requested",
-      paymentStatus: "pending",
+      payment: {
+        status: "pending",
+      },
     });
 
     res
@@ -82,7 +84,8 @@ async function get(req, res, next) {
   try {
     const authUserId = req.user && (req.user._id || req.user.sub);
 
-    const booking = await Booking.findById(req.params.id).populate({
+    const booking = await Booking.findById(req.params.id)
+      .populate({
         path: "vehicle",
         select: "model brand registrationNumber photos pricing",
       })
@@ -94,14 +97,13 @@ async function get(req, res, next) {
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     const role = req.user && req.user.role;
-    console.log(role)
+    console.log(role);
     if (role !== "admin" && authUserId) {
       const isOwner =
         booking.owner && booking.owner.toString() === authUserId.toString();
       const isRenter =
-        booking.renter &&
-        booking.renter.toString() === authUserId.toString();
-      if (!isOwner && !isRenter )
+        booking.renter && booking.renter.toString() === authUserId.toString();
+      if (!isOwner && !isRenter)
         return res.status(403).json({ message: "Access forbidden" });
     }
 

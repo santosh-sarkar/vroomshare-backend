@@ -1,22 +1,45 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const BookingSchema = new mongoose.Schema({
-  vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
-  renter: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  startDate: { type: Date, required: true },
-  endDate: { type: Date, required: true },
-  totalPrice: { type: Number, required: true },
-  status: {
-    type: String,
-    enum: ['requested', 'approved', 'confirmed', 'cancelled', 'completed'],
-    default: 'requested'
+const BookingSchema = new mongoose.Schema(
+  {
+    vehicle: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Vehicle",
+      required: true,
+    },
+    renter: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    startDate: { type: Date, required: true },
+    endDate: { type: Date, required: true },
+    totalPrice: { type: Number, required: true },
+    status: {
+      type: String,
+      enum: ["requested", "approved", "confirmed", "cancelled", "completed"],
+      default: "requested",
+    },
+    payment: {
+      status: {
+        type: String,
+        enum: ["pending", "paid", "failed", "refunded"],
+        default: "pending",
+      },
+      transaction_uuid: {
+        type: String,
+        index: true,
+      },
+      method: { type: String, default: "esewa" },
+      paidAt: { type: Date, default: null },
+    },
   },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'failed', 'refunded'],
-    default: 'pending'
-  }
-}, { timestamps: true });
+  { timestamps: true },
+);
 
-module.exports = mongoose.model('Booking', BookingSchema);
+module.exports = mongoose.model("Booking", BookingSchema);
