@@ -181,7 +181,7 @@ async function update(req, res, next) {
     }
 
     await booking.save();
-    res.json({ ok: true, msg: `Booking is ${action}.` });
+    res.json({ ok: true, msg: booking.status });
   } catch (e) {
     next(e);
   }
