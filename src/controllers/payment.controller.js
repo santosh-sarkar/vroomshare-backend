@@ -40,7 +40,7 @@ async function payNow(req, res, next) {
 
     const signature = generateSignature(
       dataToSign,
-      process.env.ESEWA_SECRET_KEY
+      process.env.ESEWA_SECRET_KEY,
     );
 
     return res.json({
@@ -57,12 +57,34 @@ async function payNow(req, res, next) {
 
 async function paymentSuccess(req, res, next) {
   try {
+    if (!req.query.data) {
+      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+    }
+
+    // decode base64 data
+    const decodedData = JSON.parse(
+      Buffer.from(req.query.data, "base64").toString("utf-8"),
+    );
+
+    console.log(decodedData);
+
     const {
-      transaction_uuid,
+      transaction_code,
+      status,
       total_amount,
+      transaction_uuid,
       product_code,
+      signed_field_names,
       signature,
-    } = req.query;
+    } = decodedData;
+
+    const fields = signed_field_names.split(",");
+
+    const dataToSign = fields
+      .map((field) => `${field}=${decodedData[field]}`)
+      .join(",");
+
+    console.log("dataToSign:", dataToSign);
 
     const booking = await Booking.findOne({
       "payment.transaction_uuid": transaction_uuid,
@@ -72,25 +94,10 @@ async function paymentSuccess(req, res, next) {
       return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
     }
 
-    // prevent double processing
-    if (booking.payment.status === "paid") {
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/success`);
-    }
-
-    const total = Number(total_amount);
-
-    if (total !== Number(booking.totalPrice)) {
-      booking.payment.status = "failed";
-      await booking.save();
-
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
-    }
-
-    const dataToSign = `total_amount=${total},transaction_uuid=${transaction_uuid},product_code=${product_code}`;
 
     const expected = generateSignature(
       dataToSign,
-      process.env.ESEWA_SECRET_KEY
+      process.env.ESEWA_SECRET_KEY,
     );
 
     if (signature !== expected) {
@@ -100,10 +107,10 @@ async function paymentSuccess(req, res, next) {
       return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
     }
 
-    // ✅ SUCCESS
+    // SUCCESS
     booking.payment.status = "paid";
     booking.payment.paidAt = new Date();
-    booking.status = "completed";
+    booking.status = "confirmed";
 
     await booking.save();
 
@@ -114,6 +121,7 @@ async function paymentSuccess(req, res, next) {
 }
 
 async function paymentFailure(req, res) {
+  console.log("failure ma xire");
   try {
     const { transaction_uuid } = req.query;
 
@@ -126,13 +134,9 @@ async function paymentFailure(req, res) {
       await booking.save();
     }
 
-    return res.redirect(
-      `${process.env.VERCEL_FRONTEND_URL}/failure`
-    );
+    return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
   } catch (err) {
-    return res.redirect(
-      `${process.env.VERCEL_FRONTEND_URL}/failure`
-    );
+    return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
   }
 }
 
