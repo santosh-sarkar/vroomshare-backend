@@ -28,6 +28,27 @@ async function verifyUser(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// Get all vehicles pending admin verification (submitted but not yet verified)
+async function getPendingVehicles(req, res, next) {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+    const filter = { status: 'pending', isVerified: false };
+
+    const [vehicles, total] = await Promise.all([
+      Vehicle.find(filter)
+        .populate('owner', 'name email phone')
+        .skip(skip)
+        .limit(Number(limit))
+        .sort({ createdAt: -1 })
+        .exec(),
+      Vehicle.countDocuments(filter)
+    ]);
+
+    res.json({ ok: true, total, page: Number(page), limit: Number(limit), vehicles });
+  } catch (e) { next(e); }
+}
+
 // Verify a vehicle listing
 async function verifyVehicle(req, res, next) {
   try {
@@ -35,6 +56,7 @@ async function verifyVehicle(req, res, next) {
     const vehicle = await Vehicle.findById(id);
     if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
     vehicle.isVerified = true;
+    vehicle.status = 'active';
     await vehicle.save();
     res.json({ ok: true, vehicle });
   } catch (e) { next(e); }
@@ -76,4 +98,4 @@ async function resolveDispute(req, res, next) {
   } catch (e) { next(e); }
 }
 
-module.exports = { stats, verifyUser, verifyVehicle, createDispute, resolveDispute };
+module.exports = { stats, verifyUser, verifyVehicle, getPendingVehicles, createDispute, resolveDispute };

@@ -173,7 +173,7 @@ async function create(req, res, next) {
       pricing: { dailyRate },
       photos,
       documents,
-      status: "draft",
+      status: "pending",
     };
 
     // Save vehicle to database

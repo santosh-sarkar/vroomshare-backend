@@ -6,7 +6,7 @@ const VehicleSchema = new Schema({
   owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 
   // Listing status
-  status: { type: String, enum: ['draft', 'pending', 'active', 'suspended', 'archived'], default: 'draft' },
+  status: { type: String, enum: ['pending', 'active', 'on-trip', 'suspended', 'archived'], default: 'pending' },
 
   // Basic vehicle information
   type: { type: String, enum: ['motorcycle', 'scooter', 'electric'], required: true },

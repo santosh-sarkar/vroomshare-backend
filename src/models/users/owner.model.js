@@ -7,6 +7,7 @@ const ownerSchema = new mongoose.Schema({
     citizenshipFront: { type: String },
     citizenshipBack: { type: String },
     profile: { type: String },
+    selfieWithId: { type: String },
   },
   isVerified: { type: Boolean, default: false },
 });
