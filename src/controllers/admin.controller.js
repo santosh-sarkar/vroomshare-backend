@@ -28,6 +28,53 @@ async function verifyUser(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// Get all pending users (owner/renter) awaiting verification
+async function getPendingUsers(req, res, next) {
+  try {
+    const { page = 1, limit = 20, search = '' } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const filter = {
+      role: { $in: ['owner', 'renter'] },
+      isVerified: false,
+    };
+
+    if (search && search.trim()) {
+      const keyword = search.trim();
+      filter.$or = [
+        { name: { $regex: keyword, $options: 'i' } },
+        { email: { $regex: keyword, $options: 'i' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select('name email role phone createdAt isVerified image citizenshipNo licenseNumber')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    res.json({ ok: true, total, page: Number(page), limit: Number(limit), users });
+  } catch (e) { next(e); }
+}
+
+// Get a single user submission for verification
+async function getPendingUserById(req, res, next) {
+  try {
+    const id = req.params.id;
+    const user = await User.findOne({ _id: id, role: { $in: ['owner', 'renter'] } })
+      .select('-password -__v')
+      .lean();
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.json({ ok: true, user });
+  } catch (e) { next(e); }
+}
+
 // Get all vehicles pending admin verification (submitted but not yet verified)
 async function getPendingVehicles(req, res, next) {
   try {
@@ -113,4 +160,16 @@ async function resolveDispute(req, res, next) {
   } catch (e) { next(e); }
 }
 
-module.exports = { stats, verifyUser, verifyVehicle, rejectVehicle, getPendingVehicles, createDispute, resolveDispute };
+// Reject a user KYC submission
+async function rejectUser(req, res, next) {
+  try {
+    const id = req.params.id;
+    const user = await User.findOne({ _id: id, role: { $in: ['owner', 'renter'] } });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    user.isVerified = false;
+    await user.save();
+    res.json({ ok: true, message: 'User verification rejected', user });
+  } catch (e) { next(e); }
+}
+
+module.exports = { stats, verifyUser, rejectUser, getPendingUsers, getPendingUserById, verifyVehicle, rejectVehicle, getPendingVehicles, createDispute, resolveDispute };
