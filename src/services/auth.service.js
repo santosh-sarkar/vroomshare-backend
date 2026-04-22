@@ -45,12 +45,18 @@ async function findUserByEmail(email) {
 }
 
 // Get user model based on role
-function getUserModel(role) {
+function getUserModel(role, strict = false) {
+  const normalizedRole = (role || "").toString().trim().toLowerCase();
   const models = {
     owner: owner,
     renter: renter,
+    admin: User,
   };
-  return models[role];
+
+  if (strict) return models[normalizedRole];
+
+  // Fallback to base User model so legacy tokens without role still work for profile endpoints.
+  return models[normalizedRole] || User;
 }
 
 // Generate and set tokens in cookies
@@ -146,7 +152,7 @@ async function completeSignup(email, code) {
     const signupData = verifySignupCode(email, code);
 
     // Get user model
-    const UserModel = getUserModel(signupData.role);
+    const UserModel = getUserModel(signupData.role, true);
     if (!UserModel) {
       throw new Error("Invalid role");
     }
@@ -186,7 +192,7 @@ async function registerWithVerification(role, email, code, password, userData) {
     }
 
     // Get user model and create user
-    const UserModel = getUserModel(role);
+    const UserModel = getUserModel(role, true);
     if (!UserModel) {
       throw new Error("Invalid role");
     }

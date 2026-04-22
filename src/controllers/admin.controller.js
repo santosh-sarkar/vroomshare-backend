@@ -62,6 +62,21 @@ async function verifyVehicle(req, res, next) {
   } catch (e) { next(e); }
 }
 
+// Reject a vehicle listing and remove it from pending queue
+async function rejectVehicle(req, res, next) {
+  try {
+    const id = req.params.id;
+    const vehicle = await Vehicle.findById(id);
+    if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
+
+    vehicle.isVerified = false;
+    vehicle.status = 'suspended';
+    await vehicle.save();
+
+    res.json({ ok: true, vehicle, message: 'Vehicle listing rejected' });
+  } catch (e) { next(e); }
+}
+
 // Create a dispute (any user/admin can create)
 async function createDispute(req, res, next) {
   try {
@@ -98,4 +113,4 @@ async function resolveDispute(req, res, next) {
   } catch (e) { next(e); }
 }
 
-module.exports = { stats, verifyUser, verifyVehicle, getPendingVehicles, createDispute, resolveDispute };
+module.exports = { stats, verifyUser, verifyVehicle, rejectVehicle, getPendingVehicles, createDispute, resolveDispute };
