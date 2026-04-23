@@ -141,7 +141,42 @@ async function ownerBookings(req, res, next) {
     const ownerId = req.user && (req.user._id || req.user.sub);
     if (!ownerId)
       return res.status(401).json({ message: "Authentication required" });
-    const bookings = await Booking.find({ owner: ownerId })
+
+    const { status, period = 'all' } = req.query;
+    const query = { owner: ownerId };
+
+    if (status && status !== 'all') {
+      const statusMap = {
+        awaiting: 'requested',
+        requested: 'requested',
+        approved: 'approved',
+        confirmed: 'confirmed',
+        progress: 'confirmed',
+        completed: 'completed',
+        cancelled: 'cancelled',
+      };
+
+      query.status = statusMap[status] || status;
+    }
+
+    if (period && period !== 'all') {
+      const now = new Date();
+      const fromDate = new Date();
+
+      if (period === '7d') {
+        fromDate.setDate(now.getDate() - 7);
+      } else if (period === '30d') {
+        fromDate.setDate(now.getDate() - 30);
+      } else if (period === '90d') {
+        fromDate.setDate(now.getDate() - 90);
+      }
+
+      if (['7d', '30d', '90d'].includes(period)) {
+        query.createdAt = { $gte: fromDate, $lte: now };
+      }
+    }
+
+    const bookings = await Booking.find(query)
       .populate({
         path: "vehicle",
         select: "model brand registrationNumber photos",
@@ -151,10 +186,6 @@ async function ownerBookings(req, res, next) {
         select: "name image email",
       })
       .sort({ createdAt: -1 });
-
-    if (bookings.length === 0) {
-      return res.status(404).json({ message: "No bookings found" });
-    }
 
     res.json({ ok: true, total: bookings.length, bookings });
   } catch (e) {
