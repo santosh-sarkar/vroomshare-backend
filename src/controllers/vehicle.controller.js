@@ -225,6 +225,7 @@ async function update(req, res, next) {
       "engineCc",
       "registrationNumber",
       "documents",
+      "status",
     ];
     const patch = {};
     for (const key of allowed) {
@@ -257,6 +258,19 @@ async function update(req, res, next) {
       delete patch.vehicleType;
     }
 
+    const allowedStatuses = ["pending", "active", "on-trip", "suspended", "archived"];
+    if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
+      const normalizedStatus = req.body.status
+        ? req.body.status.toString().trim().toLowerCase()
+        : "";
+      if (!allowedStatuses.includes(normalizedStatus)) {
+        return res.status(400).json({
+          message: `Invalid vehicle status. Allowed: ${allowedStatuses.join(", ")}`,
+        });
+      }
+      patch.status = normalizedStatus;
+    }
+
     if (Object.keys(patch).length === 0 && !req.file && !req.files) {
       return res.status(400).json({ message: "No valid fields to update" });
     }
@@ -267,8 +281,8 @@ async function update(req, res, next) {
     const authUserId = req.user && (req.user._id || req.user.sub);
     if (
       authUserId &&
-      vehicle.ownerId &&
-      vehicle.ownerId.toString() !== authUserId.toString()
+      vehicle.owner &&
+      vehicle.owner.toString() !== authUserId.toString()
     ) {
       return res
         .status(403)
@@ -308,8 +322,8 @@ async function remove(req, res, next) {
     const authUserId = req.user && (req.user._id || req.user.sub);
     if (
       authUserId &&
-      vehicle.ownerId &&
-      vehicle.ownerId.toString() !== authUserId.toString()
+      vehicle.owner &&
+      vehicle.owner.toString() !== authUserId.toString()
     ) {
       return res
         .status(403)
