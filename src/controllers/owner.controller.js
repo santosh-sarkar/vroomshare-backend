@@ -19,12 +19,17 @@ async function bookings(req, res, next) {
     if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
 
     const { page = 1, limit = 20, status } = req.query;
-    const query = { ownerId };
+    const query = { owner: ownerId };
     if (status) query.status = status;
 
     const skip = (Number(page) - 1) * Number(limit);
     const [bookings, total] = await Promise.all([
-      Booking.find(query).populate('vehicleId renterId', 'title name email').sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      Booking.find(query)
+        .populate('vehicle', 'brand model photos pricing pickupAddress location')
+        .populate('renter', 'name image email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
       Booking.countDocuments(query)
     ]);
 
