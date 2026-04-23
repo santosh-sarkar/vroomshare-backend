@@ -14,6 +14,7 @@ const renterSchema = new mongoose.Schema({
   },
   isVerified: { type: Boolean, default: false },
   rating: { type: Number, default: 0 },
+  favorites: [{ type: mongoose.Schema.Types.ObjectId, ref: "Vehicle" }],
 });
 
 module.exports = User.discriminator("renter", renterSchema);

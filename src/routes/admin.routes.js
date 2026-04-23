@@ -15,6 +15,9 @@ router.put('/reject-vehicle/:id', authenticateToken, authorizeRole('admin'), con
 
 // disputes: create (any authenticated user) and resolve (admin)
 router.post('/disputes', authenticateToken, controller.createDispute);
+router.get('/disputes/stats', authenticateToken, authorizeRole('admin'), controller.getDisputeStats);
+router.get('/disputes', authenticateToken, authorizeRole('admin'), controller.getDisputes);
+router.get('/disputes/:id', authenticateToken, authorizeRole('admin'), controller.getDisputeById);
 router.put('/disputes/:id', authenticateToken, authorizeRole('admin'), controller.resolveDispute);
 
 module.exports = router;

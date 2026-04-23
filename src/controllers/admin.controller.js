@@ -3,6 +3,34 @@ const Vehicle = require('../models/vehicle.model');
 const Booking = require('../models/booking.model');
 const Dispute = require('../models/dispute.model');
 
+const DISPUTE_STATUSES = ['open', 'in_review', 'escalated', 'resolved', 'rejected'];
+
+function normalizeDispute(disputeDoc) {
+  if (!disputeDoc) return null;
+
+  const dispute = disputeDoc.toObject ? disputeDoc.toObject() : disputeDoc;
+  const booking = dispute.bookingId || {};
+
+  const status = dispute.status || 'open';
+  const statusMap = {
+    open: { label: 'Open', tone: 'warning' },
+    in_review: { label: 'In Review', tone: 'info' },
+    escalated: { label: 'Escalated', tone: 'danger' },
+    resolved: { label: 'Resolved', tone: 'success' },
+    rejected: { label: 'Rejected', tone: 'neutral' },
+  };
+
+  return {
+    ...dispute,
+    displayId: `DIS-${String(dispute._id).slice(-6).toUpperCase()}`,
+    booking,
+    renter: booking.renter || null,
+    owner: booking.owner || null,
+    vehicle: booking.vehicle || null,
+    statusMeta: statusMap[status] || statusMap.open,
+  };
+}
+
 async function stats(req, res, next) {
   try {
     const users = await User.countDocuments();
@@ -124,16 +152,179 @@ async function rejectVehicle(req, res, next) {
   } catch (e) { next(e); }
 }
 
-// Create a dispute (any user/admin can create)
+// Create a dispute (only renter or owner can create)
 async function createDispute(req, res, next) {
   try {
     const reporterId = req.user && (req.user._id || req.user.sub);
+    const reporterRole = req.user && req.user.role;
     const { bookingId, reason } = req.body;
     if (!reporterId) return res.status(401).json({ message: 'Authentication required' });
     if (!bookingId) return res.status(400).json({ message: 'bookingId required' });
 
-    const dispute = await Dispute.create({ bookingId, reporterId, reason, status: 'open' });
-    res.status(201).json({ ok: true, dispute });
+    if (!['renter', 'owner'].includes(String(reporterRole))) {
+      return res.status(403).json({ message: 'Only renter or owner can create disputes' });
+    }
+
+    const booking = await Booking.findById(bookingId).select('renter owner').lean();
+    if (!booking) return res.status(404).json({ message: 'Booking not found' });
+
+    const isParticipant = [String(booking.renter), String(booking.owner)].includes(String(reporterId));
+    if (!isParticipant) {
+      return res.status(403).json({ message: 'Not allowed to create dispute for this booking' });
+    }
+
+    const existingOpenDispute = await Dispute.findOne({
+      bookingId,
+      status: { $in: ['open', 'in_review', 'escalated'] },
+    }).lean();
+
+    if (existingOpenDispute) {
+      return res.status(409).json({ message: 'An active dispute already exists for this booking' });
+    }
+
+    const reporter = await User.findById(reporterId).select('name').lean();
+
+    const dispute = await Dispute.create({
+      bookingId,
+      reporterId,
+      reason,
+      status: 'open',
+      timeline: [{
+        type: 'opened',
+        message: reason ? `Dispute opened: ${reason}` : 'Dispute opened',
+        actorId: reporterId,
+        actorName: reporter && reporter.name,
+        at: new Date(),
+      }],
+    });
+
+    res.status(201).json({ ok: true, dispute: normalizeDispute(dispute), message: 'Dispute created successfully' });
+  } catch (e) { next(e); }
+}
+
+// List disputes for admin management screen
+async function getDisputes(req, res, next) {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      reason,
+      search = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = req.query;
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter = {};
+    if (status && DISPUTE_STATUSES.includes(String(status))) filter.status = String(status);
+    if (reason && String(reason).trim()) filter.reason = new RegExp(String(reason).trim(), 'i');
+
+    if (search && String(search).trim()) {
+      const searchRegex = new RegExp(String(search).trim(), 'i');
+      const matchingUsers = await User.find({ name: searchRegex }).select('_id').lean();
+      const userIds = matchingUsers.map(u => u._id);
+      const matchingBookings = await Booking.find({ $or: [{ renter: { $in: userIds } }, { owner: { $in: userIds } }] }).select('_id').lean();
+      const bookingIds = matchingBookings.map(b => b._id);
+
+      const byObjectId = /^[a-f\d]{24}$/i.test(String(search).trim()) ? [String(search).trim()] : [];
+      filter.$or = [
+        { _id: { $in: byObjectId } },
+        { bookingId: { $in: bookingIds } },
+        { reason: searchRegex },
+      ];
+    }
+
+    const sort = { [sortBy]: String(sortOrder).toLowerCase() === 'asc' ? 1 : -1 };
+
+    const [rows, total] = await Promise.all([
+      Dispute.find(filter)
+        .populate({
+          path: 'bookingId',
+          select: 'startDate endDate totalPrice status renter owner vehicle',
+          populate: [
+            { path: 'renter', select: 'name email image role' },
+            { path: 'owner', select: 'name email image role' },
+            { path: 'vehicle', select: 'brand model registrationNumber type' },
+          ],
+        })
+        .populate('reporterId', 'name email role')
+        .populate('resolverId', 'name email role')
+        .sort(sort)
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Dispute.countDocuments(filter),
+    ]);
+
+    res.json({
+      ok: true,
+      page: pageNum,
+      limit: limitNum,
+      total,
+      disputes: rows.map(normalizeDispute),
+    });
+  } catch (e) { next(e); }
+}
+
+// Dispute stats for dashboard cards
+async function getDisputeStats(req, res, next) {
+  try {
+    const grouped = await Dispute.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    const stats = {
+      total: 0,
+      open: 0,
+      in_review: 0,
+      escalated: 0,
+      resolved: 0,
+      rejected: 0,
+    };
+
+    for (const item of grouped) {
+      if (stats[item._id] !== undefined) stats[item._id] = item.count;
+      stats.total += item.count;
+    }
+
+    res.json({ ok: true, stats });
+  } catch (e) { next(e); }
+}
+
+// Single dispute detail for detail screen
+async function getDisputeById(req, res, next) {
+  try {
+    const { id } = req.params;
+    const dispute = await Dispute.findById(id)
+      .populate({
+        path: 'bookingId',
+        select: 'startDate endDate totalPrice status renter owner vehicle payment',
+        populate: [
+          { path: 'renter', select: 'name email phone image role' },
+          { path: 'owner', select: 'name email phone image role' },
+          { path: 'vehicle', select: 'brand model registrationNumber type photos status' },
+        ],
+      })
+      .populate('reporterId', 'name email phone role')
+      .populate('resolverId', 'name email phone role')
+      .populate('timeline.actorId', 'name email role');
+
+    if (!dispute) return res.status(404).json({ message: 'Dispute not found' });
+
+    const normalized = normalizeDispute(dispute);
+    const timeline = (dispute.timeline || []).map((event) => ({
+      type: event.type,
+      message: event.message,
+      at: event.at,
+      actor: event.actorId || null,
+      actorName: event.actorName || (event.actorId && event.actorId.name) || 'System',
+    }));
+
+    res.json({ ok: true, dispute: normalized, timeline });
   } catch (e) { next(e); }
 }
 
@@ -141,14 +332,28 @@ async function createDispute(req, res, next) {
 async function resolveDispute(req, res, next) {
   try {
     const id = req.params.id;
-    const { resolution, action } = req.body; // action could be 'refund','cancel','none'
+    const { resolution, action, status = 'resolved' } = req.body; // action could be 'refund','cancel','none'
     const resolverId = req.user && (req.user._id || req.user.sub);
-    const dispute = await Dispute.findById(id);
+    const dispute = await Dispute.findById(id).populate('bookingId', 'status');
     if (!dispute) return res.status(404).json({ message: 'Dispute not found' });
+
+    if (!DISPUTE_STATUSES.includes(status)) {
+      return res.status(400).json({ message: `Invalid status. Allowed: ${DISPUTE_STATUSES.join(', ')}` });
+    }
+
+    const resolver = resolverId ? await User.findById(resolverId).select('name').lean() : null;
 
     dispute.resolverId = resolverId;
     dispute.resolution = resolution;
-    dispute.status = 'resolved';
+    dispute.status = status;
+    dispute.timeline = dispute.timeline || [];
+    dispute.timeline.push({
+      type: status === 'resolved' ? 'resolved' : status === 'escalated' ? 'escalated' : 'status_change',
+      message: resolution || `Status changed to ${status}`,
+      actorId: resolverId,
+      actorName: resolver && resolver.name,
+      at: new Date(),
+    });
     await dispute.save();
 
     // optional actions on booking
@@ -156,7 +361,21 @@ async function resolveDispute(req, res, next) {
       await Booking.findByIdAndUpdate(dispute.bookingId, { status: 'cancelled' });
     }
 
-    res.json({ ok: true, dispute });
+    const updated = await Dispute.findById(dispute._id)
+      .populate({
+        path: 'bookingId',
+        select: 'startDate endDate totalPrice status renter owner vehicle',
+        populate: [
+          { path: 'renter', select: 'name email image role' },
+          { path: 'owner', select: 'name email image role' },
+          { path: 'vehicle', select: 'brand model registrationNumber type' },
+        ],
+      })
+      .populate('reporterId', 'name email role')
+      .populate('resolverId', 'name email role')
+      .lean();
+
+    res.json({ ok: true, dispute: normalizeDispute(updated) });
   } catch (e) { next(e); }
 }
 
@@ -172,4 +391,18 @@ async function rejectUser(req, res, next) {
   } catch (e) { next(e); }
 }
 
-module.exports = { stats, verifyUser, rejectUser, getPendingUsers, getPendingUserById, verifyVehicle, rejectVehicle, getPendingVehicles, createDispute, resolveDispute };
+module.exports = {
+  stats,
+  verifyUser,
+  rejectUser,
+  getPendingUsers,
+  getPendingUserById,
+  verifyVehicle,
+  rejectVehicle,
+  getPendingVehicles,
+  createDispute,
+  getDisputes,
+  getDisputeStats,
+  getDisputeById,
+  resolveDispute,
+};

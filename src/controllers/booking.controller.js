@@ -42,7 +42,7 @@ async function create(req, res, next) {
 
     // OVERLAP CHECK (correct)
     const overlapping = await Booking.findOne({
-      vehicleId,
+      vehicle: vehicleId,
       status: { $in: ["approved", "confirmed"] },
       startDate: { $lt: end },
       endDate: { $gt: start },
@@ -59,8 +59,8 @@ async function create(req, res, next) {
     const totalPrice = nights * (vehicle.pricing?.dailyRate || 0);
 
     const booking = await Booking.create({
-      vehicle,
-      renter,
+      vehicle: vehicle._id,
+      renter: renterId,
       owner: vehicle.owner,
       startDate: start,
       endDate: end,
@@ -119,7 +119,16 @@ async function renterBookings(req, res, next) {
     const renterId = req.user && (req.user._id || req.user.sub);
     if (!renterId)
       return res.status(401).json({ message: "Authentication required" });
-    const bookings = await Booking.find({ renterId }).sort({ createdAt: -1 });
+    const bookings = await Booking.find({ renter: renterId })
+      .populate({
+        path: "vehicle",
+        select: "model brand photos pickup pricing",
+      })
+      .populate({
+        path: "owner",
+        select: "name image email",
+      })
+      .sort({ createdAt: -1 });
     res.json({ ok: true, total: bookings.length, bookings });
   } catch (e) {
     next(e);
@@ -160,10 +169,7 @@ async function update(req, res, next) {
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     const authUserId = req.user && (req.user._id || req.user.sub);
-    if (
-      !authUserId ||
-      (booking.ownerId && booking.ownerId.toString() !== authUserId.toString())
-    ) {
+    if (!authUserId || (booking.owner && booking.owner.toString() !== authUserId.toString())) {
       return res.status(403).json({ message: "Not authorized" });
     }
 

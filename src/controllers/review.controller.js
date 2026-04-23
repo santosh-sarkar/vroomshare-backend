@@ -13,7 +13,7 @@ async function create(req, res, next) {
     const booking = await Booking.findById(bookingId);
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
-    if (booking.renterId && booking.renterId.toString() !== renterId.toString()) {
+    if (booking.renter && booking.renter.toString() !== renterId.toString()) {
       return res.status(403).json({ message: 'Not authorized to review this booking' });
     }
 
@@ -33,7 +33,9 @@ async function create(req, res, next) {
 async function getByVehicle(req, res, next) {
   try {
     const { vehicleId } = req.params;
-    const reviews = await Review.find({ vehicleId }).sort({ createdAt: -1 });
+    const reviews = await Review.find({ vehicleId })
+      .populate('renterId', 'name image')
+      .sort({ createdAt: -1 });
     res.json({ ok: true, total: reviews.length, reviews });
   } catch (e) {
     next(e);

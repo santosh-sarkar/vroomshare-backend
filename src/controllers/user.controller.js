@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { getUserModel } = require("../services/auth.service");
+const Vehicle = require("../models/vehicle.model");
 
 async function getProfile(req, res, next) {
   try {
@@ -151,4 +152,95 @@ async function updateProfile(req, res, next) {
   }
 }
 
-module.exports = { getProfile, updateProfile };
+async function getFavorites(req, res, next) {
+  try {
+    const { sub, role } = req.user || {};
+    if (!sub || !mongoose.Types.ObjectId.isValid(sub)) {
+      return res.status(400).json({ ok: false, message: "Invalid or missing user ID" });
+    }
+
+    if (role !== "renter") {
+      return res.status(403).json({ ok: false, message: "Only renters can access favorites" });
+    }
+
+    const UserModel = getUserModel(role, true);
+    const user = await UserModel.findById(sub)
+      .select("favorites")
+      .populate({
+        path: "favorites",
+        populate: { path: "owner", select: "name email" },
+      })
+      .lean();
+
+    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
+    res.json({ ok: true, total: (user.favorites || []).length, favorites: user.favorites || [] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function addFavorite(req, res, next) {
+  try {
+    const { sub, role } = req.user || {};
+    const { vehicleId } = req.params;
+
+    if (!sub || !mongoose.Types.ObjectId.isValid(sub)) {
+      return res.status(400).json({ ok: false, message: "Invalid or missing user ID" });
+    }
+    if (role !== "renter") {
+      return res.status(403).json({ ok: false, message: "Only renters can add favorites" });
+    }
+    if (!vehicleId || !mongoose.Types.ObjectId.isValid(vehicleId)) {
+      return res.status(400).json({ ok: false, message: "Invalid vehicleId" });
+    }
+
+    const vehicle = await Vehicle.findById(vehicleId).select("_id").lean();
+    if (!vehicle) return res.status(404).json({ ok: false, message: "Vehicle not found" });
+
+    const UserModel = getUserModel(role, true);
+    const updated = await UserModel.findByIdAndUpdate(
+      sub,
+      { $addToSet: { favorites: vehicleId } },
+      { new: true }
+    ).select("favorites");
+
+    if (!updated) return res.status(404).json({ ok: false, message: "User not found" });
+
+    res.json({ ok: true, message: "Added to favorites", total: (updated.favorites || []).length, favorites: updated.favorites || [] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeFavorite(req, res, next) {
+  try {
+    const { sub, role } = req.user || {};
+    const { vehicleId } = req.params;
+
+    if (!sub || !mongoose.Types.ObjectId.isValid(sub)) {
+      return res.status(400).json({ ok: false, message: "Invalid or missing user ID" });
+    }
+    if (role !== "renter") {
+      return res.status(403).json({ ok: false, message: "Only renters can remove favorites" });
+    }
+    if (!vehicleId || !mongoose.Types.ObjectId.isValid(vehicleId)) {
+      return res.status(400).json({ ok: false, message: "Invalid vehicleId" });
+    }
+
+    const UserModel = getUserModel(role, true);
+    const updated = await UserModel.findByIdAndUpdate(
+      sub,
+      { $pull: { favorites: vehicleId } },
+      { new: true }
+    ).select("favorites");
+
+    if (!updated) return res.status(404).json({ ok: false, message: "User not found" });
+
+    res.json({ ok: true, message: "Removed from favorites", total: (updated.favorites || []).length, favorites: updated.favorites || [] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getProfile, updateProfile, getFavorites, addFavorite, removeFavorite };
