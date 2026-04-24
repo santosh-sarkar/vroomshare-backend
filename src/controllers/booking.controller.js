@@ -299,6 +299,18 @@ async function update(req, res, next) {
     }
 
     await booking.save();
+
+    if (booking.status === "completed") {
+      await Vehicle.findByIdAndUpdate(booking.vehicle, {
+        $pull: {
+          blockedDates: {
+            from: booking.startDate,
+            to: booking.endDate,
+          },
+        },
+      });
+    }
+
     res.json({ ok: true, msg: booking.status });
   } catch (e) {
     next(e);

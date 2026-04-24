@@ -8,6 +8,8 @@ async function list(req, res, next) {
       ownerId,
       vehicleType,
       location,
+      pickup,
+      return: returnDate,
       priceMin,
       priceMax,
       availability,
@@ -30,6 +32,37 @@ async function list(req, res, next) {
     if (priceMin || priceMax) query.pricePerDay = {};
     if (priceMin) query.pricePerDay.$gte = Number(priceMin);
     if (priceMax) query.pricePerDay.$lte = Number(priceMax);
+
+    if (pickup && returnDate) {
+      const requestedPickup = new Date(pickup);
+      const requestedReturn = new Date(returnDate);
+
+      if (
+        Number.isNaN(requestedPickup.valueOf()) ||
+        Number.isNaN(requestedReturn.valueOf())
+      ) {
+        return res.status(400).json({
+          ok: false,
+          message: "Invalid pickup or return date",
+        });
+      }
+
+      if (requestedPickup >= requestedReturn) {
+        return res.status(400).json({
+          ok: false,
+          message: "Pickup date must be before return date",
+        });
+      }
+
+      query.blockedDates = {
+        $not: {
+          $elemMatch: {
+            from: { $lt: requestedReturn },
+            to: { $gt: requestedPickup },
+          },
+        },
+      };
+    }
 
     const skip = (Number(page) - 1) * Number(limit);
 

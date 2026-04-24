@@ -1,4 +1,5 @@
 const Booking = require("../models/booking.model");
+const Vehicle = require("../models/vehicle.model");
 const { generateSignature } = require("../utils/esewa");
 const { v4: uuidv4 } = require("uuid");
 
@@ -113,6 +114,14 @@ async function paymentSuccess(req, res, next) {
     booking.status = "confirmed";
 
     await booking.save();
+    await Vehicle.findByIdAndUpdate(booking.vehicle, {
+      $addToSet: {
+        blockedDates: {
+          from: booking.startDate,
+          to: booking.endDate,
+        },
+      },
+    });
 
     return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/success`);
   } catch (err) {
