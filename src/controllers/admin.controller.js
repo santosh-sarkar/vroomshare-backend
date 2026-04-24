@@ -4,6 +4,74 @@ const Booking = require('../models/booking.model');
 const Dispute = require('../models/dispute.model');
 
 const DISPUTE_STATUSES = ['open', 'in_review', 'escalated', 'resolved', 'rejected'];
+const ACTIVE_DISPUTE_STATUSES = ['open', 'in_review', 'escalated'];
+const CLOSED_DISPUTE_STATUSES = ['resolved', 'rejected'];
+const DISPUTE_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function getDisputeAccess(booking, now = new Date()) {
+  if (!booking) {
+    return { allowed: false, message: 'Booking not found' };
+  }
+
+  const status = String(booking.status || '').toLowerCase();
+  const startDate = booking.startDate ? new Date(booking.startDate) : null;
+  const endDate = booking.endDate ? new Date(booking.endDate) : null;
+  const completedAt = booking.completedAt ? new Date(booking.completedAt) : null;
+  const updatedAt = booking.updatedAt ? new Date(booking.updatedAt) : null;
+
+  const hasValidDates =
+    startDate instanceof Date &&
+    !Number.isNaN(startDate.valueOf()) &&
+    endDate instanceof Date &&
+    !Number.isNaN(endDate.valueOf());
+
+  const isOngoing =
+    status === 'ongoing' ||
+    (status === 'confirmed' && hasValidDates && now >= startDate && now <= endDate);
+
+  if (isOngoing) {
+    return {
+      allowed: true,
+      actionLabel: 'Report Issue',
+      mode: 'issue',
+    };
+  }
+
+  const completedReference =
+    completedAt instanceof Date && !Number.isNaN(completedAt.valueOf())
+      ? completedAt
+      : updatedAt instanceof Date && !Number.isNaN(updatedAt.valueOf()) && status === 'completed'
+        ? updatedAt
+      : endDate instanceof Date && !Number.isNaN(endDate.valueOf())
+        ? endDate
+        : null;
+
+  if (status === 'completed' && completedReference) {
+    const expiresAt = new Date(completedReference.getTime() + DISPUTE_WINDOW_MS);
+
+    if (now <= expiresAt) {
+      return {
+        allowed: true,
+        actionLabel: 'Raise Dispute',
+        mode: 'dispute',
+        expiresAt,
+      };
+    }
+
+    return {
+      allowed: false,
+      message: 'Disputes for completed bookings must be raised within 48 hours of trip completion',
+      mode: 'expired',
+      expiresAt,
+    };
+  }
+
+  return {
+    allowed: false,
+    message: 'You can report an issue only during an ongoing trip or raise a dispute within 48 hours after completion',
+    mode: 'unavailable',
+  };
+}
 
 function normalizeDispute(disputeDoc) {
   if (!disputeDoc) return null;
@@ -29,6 +97,13 @@ function normalizeDispute(disputeDoc) {
     vehicle: booking.vehicle || null,
     statusMeta: statusMap[status] || statusMap.open,
   };
+}
+
+function parseIncidentAt(incidentAt) {
+  if (!incidentAt) return null;
+
+  const parsed = new Date(incidentAt);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed;
 }
 
 async function stats(req, res, next) {
@@ -157,15 +232,17 @@ async function createDispute(req, res, next) {
   try {
     const reporterId = req.user && (req.user._id || req.user.sub);
     const reporterRole = req.user && req.user.role;
-    const { bookingId, reason } = req.body;
+    const { bookingId, reason, description, incidentAt } = req.body;
     if (!reporterId) return res.status(401).json({ message: 'Authentication required' });
     if (!bookingId) return res.status(400).json({ message: 'bookingId required' });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ message: 'reason required' });
+    if (!description || !String(description).trim()) return res.status(400).json({ message: 'description required' });
 
     if (!['renter', 'owner'].includes(String(reporterRole))) {
       return res.status(403).json({ message: 'Only renter or owner can create disputes' });
     }
 
-    const booking = await Booking.findById(bookingId).select('renter owner').lean();
+    const booking = await Booking.findById(bookingId).select('renter owner status startDate endDate completedAt updatedAt').lean();
     if (!booking) return res.status(404).json({ message: 'Booking not found' });
 
     const isParticipant = [String(booking.renter), String(booking.owner)].includes(String(reporterId));
@@ -173,9 +250,29 @@ async function createDispute(req, res, next) {
       return res.status(403).json({ message: 'Not allowed to create dispute for this booking' });
     }
 
+    const disputeAccess = getDisputeAccess(booking);
+    if (!disputeAccess.allowed) {
+      return res.status(400).json({
+        message: disputeAccess.message,
+        disputeAccess,
+      });
+    }
+
+    if (disputeAccess.mode === 'dispute') {
+      const existingCompletedBookingDispute = await Dispute.findOne({ bookingId })
+        .select('_id reporterId status')
+        .lean();
+
+      if (existingCompletedBookingDispute) {
+        return res.status(409).json({
+          message: 'A dispute has already been created for this completed booking',
+        });
+      }
+    }
+
     const existingOpenDispute = await Dispute.findOne({
       bookingId,
-      status: { $in: ['open', 'in_review', 'escalated'] },
+      status: { $in: ACTIVE_DISPUTE_STATUSES },
     }).lean();
 
     if (existingOpenDispute) {
@@ -183,18 +280,38 @@ async function createDispute(req, res, next) {
     }
 
     const reporter = await User.findById(reporterId).select('name').lean();
+    const evidence = Array.isArray(req.files)
+      ? req.files
+          .map((file) => ({
+            url: file.path || file.secure_url || null,
+            public_id: file.filename || file.public_id || null,
+            originalName: file.originalname || null,
+          }))
+          .filter((file) => file.url)
+      : [];
+
+    const parsedIncidentAt = parseIncidentAt(incidentAt);
+    const openedMessageParts = [
+      `Dispute opened: ${String(reason).trim()}`,
+      parsedIncidentAt ? `Incident time: ${parsedIncidentAt.toISOString()}` : null,
+      String(description).trim(),
+    ].filter(Boolean);
 
     const dispute = await Dispute.create({
       bookingId,
       reporterId,
-      reason,
+      reason: String(reason).trim(),
+      description: String(description).trim(),
+      incidentAt: parsedIncidentAt,
+      evidence,
       status: 'open',
       timeline: [{
         type: 'opened',
-        message: reason ? `Dispute opened: ${reason}` : 'Dispute opened',
+        message: openedMessageParts.join('\n\n'),
         actorId: reporterId,
         actorName: reporter && reporter.name,
         at: new Date(),
+        evidences: evidence.map((file) => file.url),
       }],
     });
 
@@ -322,9 +439,45 @@ async function getDisputeById(req, res, next) {
       at: event.at,
       actor: event.actorId || null,
       actorName: event.actorName || (event.actorId && event.actorId.name) || 'System',
+      evidences: event.evidences || [],
     }));
 
     res.json({ ok: true, dispute: normalized, timeline });
+  } catch (e) { next(e); }
+}
+
+async function getDisputeByBooking(req, res, next) {
+  try {
+    const { bookingId } = req.params;
+    const authUserId = req.user && (req.user._id || req.user.sub);
+    const role = req.user && req.user.role;
+
+    const dispute = await Dispute.findOne({ bookingId })
+      .sort({ createdAt: -1 })
+      .populate({
+        path: 'bookingId',
+        select: 'startDate endDate totalPrice status renter owner vehicle payment completedAt updatedAt',
+        populate: [
+          { path: 'renter', select: 'name email phone image role' },
+          { path: 'owner', select: 'name email phone image role' },
+          { path: 'vehicle', select: 'brand model registrationNumber type photos status' },
+        ],
+      })
+      .populate('reporterId', 'name email phone role')
+      .populate('resolverId', 'name email phone role')
+      .lean();
+
+    if (!dispute) {
+      return res.status(404).json({ message: 'Dispute not found for this booking' });
+    }
+
+    const booking = dispute.bookingId;
+    const isParticipant = booking && [String(booking.renter?._id || booking.renter), String(booking.owner?._id || booking.owner)].includes(String(authUserId));
+    if (role !== 'admin' && !isParticipant) {
+      return res.status(403).json({ message: 'Access forbidden' });
+    }
+
+    res.json({ ok: true, dispute: normalizeDispute(dispute) });
   } catch (e) { next(e); }
 }
 
@@ -339,6 +492,10 @@ async function resolveDispute(req, res, next) {
 
     if (!DISPUTE_STATUSES.includes(status)) {
       return res.status(400).json({ message: `Invalid status. Allowed: ${DISPUTE_STATUSES.join(', ')}` });
+    }
+
+    if (CLOSED_DISPUTE_STATUSES.includes(dispute.status)) {
+      return res.status(409).json({ message: 'This dispute is already closed and can no longer be updated' });
     }
 
     const resolver = resolverId ? await User.findById(resolverId).select('name').lean() : null;
@@ -404,5 +561,6 @@ module.exports = {
   getDisputes,
   getDisputeStats,
   getDisputeById,
+  getDisputeByBooking,
   resolveDispute,
 };

@@ -5,6 +5,13 @@ const DisputeSchema = new mongoose.Schema({
   reporterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   resolverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   reason: { type: String },
+  description: { type: String, trim: true },
+  incidentAt: { type: Date },
+  evidence: [{
+    url: { type: String, required: true },
+    public_id: { type: String },
+    originalName: { type: String },
+  }],
   status: { type: String, enum: ['open', 'in_review', 'escalated', 'resolved', 'rejected'], default: 'open' },
   resolution: { type: String },
   timeline: [{
@@ -16,7 +23,8 @@ const DisputeSchema = new mongoose.Schema({
     message: { type: String, required: true },
     actorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     actorName: { type: String },
-    at: { type: Date, default: Date.now }
+    at: { type: Date, default: Date.now },
+    evidences: [{ type: String }] // legacy timeline evidence references
   }]
 }, { timestamps: true });
 

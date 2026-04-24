@@ -19,10 +19,11 @@ const BookingSchema = new mongoose.Schema(
     },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
+    completedAt: { type: Date, default: null },
     totalPrice: { type: Number, required: true },
     status: {
       type: String,
-      enum: ["requested", "approved", "confirmed", "cancelled", "completed"],
+      enum: ["requested", "approved", "confirmed","ongoing", "cancelled", "completed"],
       default: "requested",
     },
     payment: {

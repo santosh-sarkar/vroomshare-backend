@@ -1,5 +1,6 @@
 const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
+const Dispute = require("../models/dispute.model");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -8,6 +9,45 @@ function daysBetween(start, end) {
   const e = new Date(end + "T00:00:00");
   const diff = Math.ceil((e - s) / MS_PER_DAY);
   return diff > 0 ? diff : 0;
+}
+
+function toDisplayId(id) {
+  return `DIS-${String(id).slice(-6).toUpperCase()}`;
+}
+
+async function attachExistingDisputes(items) {
+  const records = Array.isArray(items) ? items : [items];
+  const validBookings = records.filter(Boolean);
+
+  if (validBookings.length === 0) {
+    return items;
+  }
+
+  const bookingIds = validBookings.map((booking) => booking._id);
+  const disputes = await Dispute.find({ bookingId: { $in: bookingIds } })
+    .select('_id bookingId status createdAt updatedAt')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const disputeByBookingId = new Map();
+  for (const dispute of disputes) {
+    const bookingId = String(dispute.bookingId);
+    if (!disputeByBookingId.has(bookingId)) {
+      disputeByBookingId.set(bookingId, {
+        _id: dispute._id,
+        displayId: toDisplayId(dispute._id),
+        status: dispute.status,
+        createdAt: dispute.createdAt,
+        updatedAt: dispute.updatedAt,
+      });
+    }
+  }
+
+  validBookings.forEach((booking) => {
+    booking.existingDispute = disputeByBookingId.get(String(booking._id)) || null;
+  });
+
+  return items;
 }
 
 // Create a booking (renter)
@@ -90,6 +130,10 @@ async function get(req, res, next) {
         select: "model brand registrationNumber photos pricing",
       })
       .populate({
+        path: "owner",
+        select: "name image email createdAt",
+      })
+      .populate({
         path: "renter",
         select: "name image email createdAt",
       });
@@ -106,6 +150,8 @@ async function get(req, res, next) {
       if (!isOwner && !isRenter)
         return res.status(403).json({ message: "Access forbidden" });
     }
+
+    await attachExistingDisputes(booking);
 
     res.json({ ok: true, booking });
   } catch (e) {
@@ -129,6 +175,9 @@ async function renterBookings(req, res, next) {
         select: "name image email",
       })
       .sort({ createdAt: -1 });
+
+    await attachExistingDisputes(bookings);
+
     res.json({ ok: true, total: bookings.length, bookings });
   } catch (e) {
     next(e);
@@ -187,6 +236,8 @@ async function ownerBookings(req, res, next) {
       })
       .sort({ createdAt: -1 });
 
+    await attachExistingDisputes(bookings);
+
     res.json({ ok: true, total: bookings.length, bookings });
   } catch (e) {
     next(e);
@@ -209,10 +260,13 @@ async function update(req, res, next) {
 
     if (action === "approve") {
       booking.status = "approved";
+      booking.completedAt = null;
     } else if (action === "cancel") {
       booking.status = "cancelled";
+      booking.completedAt = null;
     } else if (action === "complete") {
       booking.status = "completed";
+      booking.completedAt = new Date();
     } else {
       return res.status(400).json({ message: "Invalid action" });
     }
