@@ -124,6 +124,8 @@ async function get(req, res, next) {
   try {
     const authUserId = req.user && (req.user._id || req.user.sub);
 
+    if (!req.params.id) return res.status(400).json({ message: "id is required" });
+
     const booking = await Booking.findById(req.params.id)
       .populate({
         path: "vehicle",
@@ -200,12 +202,16 @@ async function ownerBookings(req, res, next) {
         requested: 'requested',
         approved: 'approved',
         confirmed: 'confirmed',
-        progress: 'confirmed',
+        progress: ['confirmed', 'ongoing'],
+        ongoing: 'ongoing',
         completed: 'completed',
         cancelled: 'cancelled',
       };
 
-      query.status = statusMap[status] || status;
+      const resolvedStatus = statusMap[status] || status;
+      query.status = Array.isArray(resolvedStatus)
+        ? { $in: resolvedStatus }
+        : resolvedStatus;
     }
 
     if (period && period !== 'all') {
@@ -255,14 +261,35 @@ async function update(req, res, next) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    const { action } = req.body; // expected values: confirm, cancel, complete
+    const { action } = req.body;
     if (!action) return res.status(400).json({ message: "action is required" });
+
+    const allowedTransitions = {
+      requested: ["approve", "cancel"],
+      approved: [],
+      confirmed: ["ongoing"],
+      ongoing: ["complete"],
+      completed: [],
+      cancelled: [],
+    };
+
+    const currentStatus = booking.status;
+    const permittedActions = allowedTransitions[currentStatus] || [];
+
+    if (!permittedActions.includes(action)) {
+      return res.status(400).json({
+        message: `Action \"${action}\" is not allowed for booking status \"${currentStatus}\"`,
+      });
+    }
 
     if (action === "approve") {
       booking.status = "approved";
       booking.completedAt = null;
     } else if (action === "cancel") {
       booking.status = "cancelled";
+      booking.completedAt = null;
+    } else if (action === "ongoing") {
+      booking.status = "ongoing";
       booking.completedAt = null;
     } else if (action === "complete") {
       booking.status = "completed";
