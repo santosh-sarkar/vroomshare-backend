@@ -1,7 +1,9 @@
 const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
+const User = require("../models/users/user.model");
 const { generateSignature } = require("../utils/esewa");
 const { v4: uuidv4 } = require("uuid");
+const { generateUserTokens, setAuthCookies } = require("../services/auth.service");
 
 async function payNow(req, res, next) {
   try {
@@ -83,13 +85,17 @@ async function paymentSuccess(req, res, next) {
       .map((field) => `${field}=${decodedData[field]}`)
       .join(",");
 
-    console.log("dataToSign:", dataToSign);
-
     const booking = await Booking.findOne({
       "payment.transaction_uuid": transaction_uuid,
     });
 
     if (!booking) {
+      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+    }
+
+    const user = await User.findById(booking.user);
+
+    if (!user) {
       return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
     }
 
@@ -102,7 +108,6 @@ async function paymentSuccess(req, res, next) {
     if (signature !== expected) {
       booking.payment.status = "failed";
       await booking.save();
-
       return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
     }
 
@@ -120,6 +125,15 @@ async function paymentSuccess(req, res, next) {
         },
       },
     });
+
+    // set cookies again to maintain session after redirect (if needed)
+      // Generate and set tokens
+    const { accessToken, refreshToken } = generateUserTokens(
+      user._id,
+      user.role,
+    );
+    setAuthCookies(res, accessToken, refreshToken);
+
 
     return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/success`);
   } catch (err) {
@@ -140,6 +154,16 @@ async function paymentFailure(req, res) {
       booking.payment.status = "failed";
       await booking.save();
     }
+
+    const user = await User.findById(booking.user);
+
+    // set cookies again to maintain session after redirect (if needed)
+    // Generate and set tokens
+    const { accessToken, refreshToken } = generateUserTokens(
+      user._id,
+      user.role,
+    );
+    setAuthCookies(res, accessToken, refreshToken);
 
     return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
   } catch (err) {
