@@ -67,8 +67,6 @@ async function paymentSuccess(req, res, next) {
       Buffer.from(req.query.data, "base64").toString("utf-8"),
     );
 
-    console.log(decodedData);
-
     const {
       transaction_code,
       status,

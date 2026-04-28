@@ -18,7 +18,9 @@ async function list(req, res, next) {
       sort,
     } = req.query;
 
-    const query = {};
+    const query = {
+      status: { $nin: ["pending", "archived", "suspended"] },
+    };
     if (ownerId) query.ownerId = ownerId;
     if (vehicleType) query.vehicleType = vehicleType;
     if (location) {

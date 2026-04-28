@@ -94,6 +94,15 @@ async function create(req, res, next) {
         .json({ message: "Vehicle already booked for given dates" });
     }
 
+    await Vehicle.findByIdAndUpdate(vehicleId, {
+          $addToSet: {
+            blockedDates: {
+              from: start,
+              to: end,
+            },
+          },
+        });
+
     // SAFE NIGHT CALCULATION
     const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
     const totalPrice = nights * (vehicle.pricing?.dailyRate || 0);
@@ -261,6 +270,9 @@ async function update(req, res, next) {
       return res.status(403).json({ message: "Not authorized" });
     }
 
+    const vehicle = await Vehicle.findById(booking.vehicle);
+   if (!vehicle) return res.status(404).json({ message: "Associated vehicle not found" });
+
     const { action } = req.body;
     if (!action) return res.status(400).json({ message: "action is required" });
 
@@ -288,12 +300,28 @@ async function update(req, res, next) {
     } else if (action === "cancel") {
       booking.status = "cancelled";
       booking.completedAt = null;
+      vehicle.blockedDates = vehicle.blockedDates.filter(
+        (bd) =>
+          !(
+            bd.from.getTime() === booking.startDate.getTime() &&
+            bd.to.getTime() === booking.endDate.getTime()
+          )
+      );
+      await vehicle.save();
     } else if (action === "ongoing") {
       booking.status = "ongoing";
       booking.completedAt = null;
     } else if (action === "complete") {
       booking.status = "completed";
       booking.completedAt = new Date();
+      vehicle.blockedDates = vehicle.blockedDates.filter(
+        (bd) =>
+          !(
+            bd.from.getTime() === booking.startDate.getTime() &&
+            bd.to.getTime() === booking.endDate.getTime()
+          )
+      );
+      await vehicle.save();
     } else {
       return res.status(400).json({ message: "Invalid action" });
     }
