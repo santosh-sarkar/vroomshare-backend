@@ -5,6 +5,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProduction,
   sameSite: isProduction ? "none" : "lax",
+  path: "/",
 };
 
 const ACCESS_TOKEN_COOKIE_OPTIONS = {
