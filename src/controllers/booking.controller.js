@@ -1,6 +1,7 @@
 const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
 const Dispute = require("../models/dispute.model");
+const Renter = require("../models/users/renter.model");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -60,6 +61,10 @@ async function create(req, res, next) {
 
     if (!renterId)
       return res.status(401).json({ message: "please login first" });
+
+    const renter = await Renter.findById(renterId).select('isVerified').lean();
+    if (!renter || !renter.isVerified)
+      return res.status(403).json({ ok: false, message: "KYC verification required before booking. Please complete your identity verification." });
 
     if (!vehicleId || !startDate || !endDate)
       return res
