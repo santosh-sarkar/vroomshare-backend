@@ -125,7 +125,7 @@ async function initiateSignup(email, password, role, userData) {
       ...userData,
     };
     storeSignupData(email, dataToStore, verificationCode, expiresAt);
-
+console.log("email sending");
     // Send verification email and ensure it was delivered
     const emailResult = await sendVerificationEmail(email, verificationCode, userData.name || "User");
     if (!emailResult || emailResult.success !== true) {
@@ -158,10 +158,13 @@ async function completeSignup(email, code) {
     }
 
     // Create user with verified data
-    const user = await UserModel.create({
+    const created = await UserModel.create({
       ...signupData,
       isEmailVerified: true,
-    }).select("-password -__v");;
+    });
+    const user = created.toObject();
+    delete user.password;
+    delete user.__v;
 
     // Clear signup data
     clearSignupData(email);
@@ -175,6 +178,9 @@ async function completeSignup(email, code) {
       tokens,
     };
   } catch (err) {
+    if (err.code === 11000) {
+      throw new Error('Email already registered');
+    }
     throw new Error(err.message);
   }
 }
