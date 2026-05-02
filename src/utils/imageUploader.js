@@ -7,18 +7,6 @@ function createImageUploader(folderName) {
     throw new Error('createImageUploader requires a folderName string');
   }
 
-  // Configure lazily so env vars are always read at request time
-  const cloud_name = process.env.CLOUDINARY_CLOUD_NAME;
-  const api_key = process.env.CLOUDINARY_API_KEY;
-  const api_secret = process.env.CLOUDINARY_API_SECRET;
-
-  if (!cloud_name || !api_key || !api_secret) {
-    throw new Error(
-      'Cloudinary is not configured. Ensure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET are set in your environment variables.'
-    );
-  }
-
-  cloudinary.config({ cloud_name, api_key, api_secret });
   const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
