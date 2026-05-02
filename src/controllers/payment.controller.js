@@ -1,9 +1,7 @@
 const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
-const User = require("../models/users/user.model");
 const { generateSignature } = require("../utils/esewa");
 const { v4: uuidv4 } = require("uuid");
-const { generateUserTokens, setAuthCookies } = require("../services/auth.service");
 
 async function payNow(req, res, next) {
   try {
@@ -58,19 +56,20 @@ async function payNow(req, res, next) {
   }
 }
 
-async function paymentSuccess(req, res, next) {
+// POST /payment/verify  — called by frontend success page with { data: "<base64>" }
+async function verifyPayment(req, res, next) {
   try {
-    if (!req.query.data) {
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ ok: false, message: "Missing payment data" });
+
+    let decodedData;
+    try {
+      decodedData = JSON.parse(Buffer.from(data, "base64").toString("utf-8"));
+    } catch {
+      return res.status(400).json({ ok: false, message: "Invalid payment data encoding" });
     }
 
-    // decode base64 data
-    const decodedData = JSON.parse(
-      Buffer.from(req.query.data, "base64").toString("utf-8"),
-    );
-
     const {
-      transaction_code,
       status,
       total_amount,
       transaction_uuid,
@@ -79,100 +78,60 @@ async function paymentSuccess(req, res, next) {
       signature,
     } = decodedData;
 
+    if (status !== "COMPLETE") {
+      return res.status(400).json({ ok: false, message: "Payment not completed" });
+    }
+
     const fields = signed_field_names.split(",");
-
-    const dataToSign = fields
-      .map((field) => `${field}=${decodedData[field]}`)
-      .join(",");
-
-    const booking = await Booking.findOne({
-      "payment.transaction_uuid": transaction_uuid,
-    });
-
-    if (!booking) {
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
-    }
-
-    const user = await User.findById(booking.user);
-
-    if (!user) {
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
-    }
-
-
-    const expected = generateSignature(
-      dataToSign,
-      process.env.ESEWA_SECRET_KEY,
-    );
+    const dataToSign = fields.map((f) => `${f}=${decodedData[f]}`).join(",");
+    const expected = generateSignature(dataToSign, process.env.ESEWA_SECRET_KEY);
 
     if (signature !== expected) {
-      booking.payment.status = "failed";
-      await booking.save();
-      return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+      return res.status(400).json({ ok: false, message: "Payment signature mismatch" });
     }
 
-    // SUCCESS
+    const booking = await Booking.findOne({ "payment.transaction_uuid": transaction_uuid });
+    if (!booking) return res.status(404).json({ ok: false, message: "Booking not found" });
+
+    if (booking.payment.status === "paid") {
+      return res.json({ ok: true, message: "Already paid", bookingId: booking._id });
+    }
+
     booking.payment.status = "paid";
     booking.payment.paidAt = new Date();
     booking.status = "confirmed";
-
     await booking.save();
+
     await Vehicle.findByIdAndUpdate(booking.vehicle, {
-      $addToSet: {
-        blockedDates: {
-          from: booking.startDate,
-          to: booking.endDate,
-        },
-      },
+      $addToSet: { blockedDates: { from: booking.startDate, to: booking.endDate } },
     });
 
-    // set cookies again to maintain session after redirect (if needed)
-      // Generate and set tokens
-    const { accessToken, refreshToken } = generateUserTokens(
-      user._id,
-      user.role,
-    );
-    setAuthCookies(res, accessToken, refreshToken);
-
-
-    return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/success`);
+    return res.json({ ok: true, message: "Payment verified", bookingId: booking._id });
   } catch (err) {
     next(err);
   }
 }
 
-async function paymentFailure(req, res) {
-  console.log("failure ma xire");
+// POST /payment/mark-failure  — called by frontend failure page with { transaction_uuid }
+async function markPaymentFailure(req, res, next) {
   try {
-    const { transaction_uuid } = req.query;
+    const { transaction_uuid } = req.body;
+    if (!transaction_uuid) return res.status(400).json({ ok: false, message: "Missing transaction_uuid" });
 
-    const booking = await Booking.findOne({
-      "payment.transaction_uuid": transaction_uuid,
-    });
-
+    const booking = await Booking.findOne({ "payment.transaction_uuid": transaction_uuid });
     if (booking && booking.payment.status !== "paid") {
       booking.payment.status = "failed";
       await booking.save();
     }
 
-    const user = await User.findById(booking.user);
-
-    // set cookies again to maintain session after redirect (if needed)
-    // Generate and set tokens
-    const { accessToken, refreshToken } = generateUserTokens(
-      user._id,
-      user.role,
-    );
-    setAuthCookies(res, accessToken, refreshToken);
-
-    return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+    return res.json({ ok: true, message: "Payment marked as failed" });
   } catch (err) {
-    return res.redirect(`${process.env.VERCEL_FRONTEND_URL}/failure`);
+    next(err);
   }
 }
 
 module.exports = {
   payNow,
-  paymentSuccess,
-  paymentFailure,
+  verifyPayment,
+  markPaymentFailure,
 };
