@@ -6,7 +6,7 @@ const {
 } = require("../config/cookies");
 const { generateVerificationCode, getVerificationCodeExpiration } = require("../utils/verification");
 const { storeSignupData, verifySignupCode, clearSignupData } = require("../utils/signupStore");
-const { sendVerificationEmail } = require("./email.service");
+const { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeEmail } = require("./email.service");
 const User = require("../models/users/user.model");
 const owner = require("../models/users/owner.model");
 const renter = require("../models/users/renter.model");
@@ -234,8 +234,8 @@ async function generateAndSendVerificationCode(user) {
     user.emailVerificationCodeExpires = expiresAt;
     await user.save();
 
-    // Send verification email and ensure it was delivered
-    const emailResult = await sendVerificationEmail(user.email, verificationCode, user.name);
+    // Send email change confirmation code
+    const emailResult = await sendEmailChangeEmail(user.email, verificationCode, user.name);
     if (!emailResult || emailResult.success !== true) {
       throw new Error(`Failed to send verification code: ${emailResult && emailResult.message ? emailResult.message : 'unknown error'}`);
     }

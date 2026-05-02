@@ -1,13 +1,43 @@
-const subject = 'Verify Your Email - VroomShare';
+const EMAIL_CONFIGS = {
+	email_verification: {
+		subject: 'Verify Your Email - VroomShare',
+		title: 'Verify Your Email',
+		heading: 'Welcome to VroomShare!',
+		description: 'Thank you for registering. Please use the verification code below to confirm your email:',
+		codeLabel: 'Verification Code',
+		footer: 'This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.',
+		disclaimer: "If you didn't create this account, please ignore this email.",
+	},
+	password_reset: {
+		subject: 'Reset Your Password - VroomShare',
+		title: 'Reset Your Password',
+		heading: 'Password Reset Request',
+		description: 'We received a request to reset your password. Use the code below to proceed:',
+		codeLabel: 'Reset Code',
+		footer: 'This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.',
+		disclaimer: "If you didn't request a password reset, please ignore this email.",
+	},
+	email_change: {
+		subject: 'Confirm Email Change - VroomShare',
+		title: 'Confirm Email Change',
+		heading: 'Confirm Your New Email',
+		description: 'You requested to change your email address. Please use the code below to confirm:',
+		codeLabel: 'Confirmation Code',
+		footer: 'This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.',
+		disclaimer: "If you didn't request this change, please contact our support immediately.",
+	},
+};
 
-function buildEmailHtml(verificationCode, userName) {
+function buildEmailHtml(code, userName, type = 'email_verification') {
+	const config = EMAIL_CONFIGS[type] || EMAIL_CONFIGS.email_verification;
+
 	return `
 		<!DOCTYPE html>
 		<html lang="en">
 		<head>
 			<meta charset="UTF-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1.0">
-			<title>Verify Your Email</title>
+			<title>${config.title}</title>
 			<style>
 				@media (prefers-color-scheme: dark) {
 					.email-body    { background-color: #0d1117 !important; }
@@ -52,30 +82,30 @@ function buildEmailHtml(verificationCode, userName) {
 							<tr>
 								<td style="padding: 36px 40px 28px 40px;">
 									<h1 class="email-heading" style="font-size:22px; font-weight:700; color:#111827; margin:0 0 20px 0; line-height:1.3;">
-										Welcome to VroomShare!
+										${config.heading}
 									</h1>
 									<p class="email-text" style="font-size:15px; color:#374151; margin:0 0 6px 0; line-height:1.6;">
 										Hi ${userName},
 									</p>
 									<p class="email-text" style="font-size:15px; color:#374151; margin:0 0 28px 0; line-height:1.6;">
-										Thank you for registering. Please use the verification code below to confirm your email:
+										${config.description}
 									</p>
 
 									<!-- OTP Box -->
 									<table class="otp-box" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5; border-radius:6px; border:1px solid #e4e4e7; margin-bottom:28px;">
 										<tr>
 											<td style="padding: 28px 20px; text-align:center;">
-												<p class="otp-label" style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:#6b7280; margin:0 0 12px 0;">Verification Code</p>
-												<span class="otp-code" style="font-size:38px; font-weight:700; letter-spacing:10px; color:#111827; font-variant-numeric:tabular-nums;">${verificationCode}</span>
+												<p class="otp-label" style="font-size:12px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:#6b7280; margin:0 0 12px 0;">${config.codeLabel}</p>
+												<span class="otp-code" style="font-size:38px; font-weight:700; letter-spacing:10px; color:#111827; font-variant-numeric:tabular-nums;">${code}</span>
 											</td>
 										</tr>
 									</table>
 
 									<p class="email-text" style="font-size:14px; color:#374151; margin:0 0 8px 0; line-height:1.6;">
-										This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.
+										${config.footer}
 									</p>
 									<p class="email-text" style="font-size:14px; color:#374151; margin:0; line-height:1.6;">
-										If you didn't create this account, please ignore this email.
+										${config.disclaimer}
 									</p>
 								</td>
 							</tr>
@@ -106,12 +136,12 @@ function buildEmailHtml(verificationCode, userName) {
 }
 
 
-async function sendViaVercelApi(apiUrl, to, html) {
+async function sendViaVercelApi(apiUrl, to, subject, html) {
 	const apiKey = process.env.VERCEL_EMAIL_API_KEY;
 	if (!apiKey) {
 		throw new Error('VERCEL_EMAIL_API_KEY is not set');
 	}
-
+	
 	const response = await fetch(apiUrl, {
 		method: 'POST',
 		headers: {
@@ -127,25 +157,38 @@ async function sendViaVercelApi(apiUrl, to, html) {
 		throw new Error(`Vercel email API error (${response.status}): ${data.error || 'Unknown error'}`);
 	}
 
-	return { success: true, message: 'Verification email sent via Vercel API', info: data };
+	return { success: true, message: 'Email sent via Vercel API', info: data };
 }
 
-async function sendVerificationEmail(email, verificationCode, userName) {
+async function sendEmail(email, code, userName, type) {
 	const apiUrl = process.env.VERCEL_EMAIL_API_URL;
 	const apiKey = process.env.VERCEL_EMAIL_API_KEY;
 
 	if (!apiUrl) throw new Error('VERCEL_EMAIL_API_URL is not set');
 	if (!apiKey) throw new Error('VERCEL_EMAIL_API_KEY is not set');
 
-	const html = buildEmailHtml(verificationCode, userName);
+	const config = EMAIL_CONFIGS[type] || EMAIL_CONFIGS.email_verification;
+	const html = buildEmailHtml(code, userName, type);
 
 	try {
-		return await sendViaVercelApi(apiUrl, email, html);
+		return await sendViaVercelApi(apiUrl, email, config.subject, html);
 	} catch (err) {
-		console.error('sendVerificationEmail error:', err && err.message ? err.message : err);
+		console.error(`sendEmail [${type}] error:`, err && err.message ? err.message : err);
 		throw err instanceof Error ? err : new Error(err && err.message ? err.message : String(err));
 	}
 }
 
-module.exports = { sendVerificationEmail };
+async function sendVerificationEmail(email, code, userName) {
+	return sendEmail(email, code, userName, 'email_verification');
+}
+
+async function sendPasswordResetEmail(email, code, userName) {
+	return sendEmail(email, code, userName, 'password_reset');
+}
+
+async function sendEmailChangeEmail(email, code, userName) {
+	return sendEmail(email, code, userName, 'email_change');
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendEmailChangeEmail };
 

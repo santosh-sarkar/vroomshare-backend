@@ -11,7 +11,7 @@ const {
 const { COOKIE_OPTIONS } = require("../config/cookies");
 const { generateVerificationCode, getVerificationCodeExpiration } = require("../utils/verification");
 const { storeVerificationCode, verifyStoredCode, clearVerificationCode } = require("../utils/verificationStore");
-const { sendVerificationEmail } = require("../services/email.service");
+const { sendPasswordResetEmail } = require("../services/email.service");
 
 // Step 1: Initiate signup - User fills details and clicks "Sign Up"
 async function signup(req, res, next) {
@@ -167,7 +167,7 @@ async function changePassword(req, res, next) {
     const otp = generateVerificationCode();
     const expiresAt = getVerificationCodeExpiration();
     storeVerificationCode(user.email, otp, expiresAt);
-    await sendVerificationEmail(user.email, otp, user.name || "User");
+    await sendPasswordResetEmail(user.email, otp, user.name || "User");
     return res.json({ ok: true, message: "Verification code sent to your email." });
   } catch (err) {
     if (
