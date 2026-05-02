@@ -1,12 +1,17 @@
 const {
   verifyPassword,
   findUserByEmail,
+  getUserModel,
+  hashPassword,
   setAuthCookies,
   generateUserTokens,
   initiateSignup,
   completeSignup,
 } = require("../services/auth.service");
 const { COOKIE_OPTIONS } = require("../config/cookies");
+const { generateVerificationCode, getVerificationCodeExpiration } = require("../utils/verification");
+const { storeVerificationCode, verifyStoredCode, clearVerificationCode } = require("../utils/verificationStore");
+const { sendVerificationEmail } = require("../services/email.service");
 
 // Step 1: Initiate signup - User fills details and clicks "Sign Up"
 async function signup(req, res, next) {
@@ -127,4 +132,53 @@ async function logout(req, res, next) {
   }
 }
 
-module.exports = { signup, verifyAndRegister, login, logout };
+/**
+ * Change password via OTP
+ * POST /auth/change-password
+ * Requires authentication (JWT)
+ *
+ * Mode 1 — Request OTP: body = {} (no code/newPassword) → sends OTP to user's email
+ * Mode 2 — Verify & update: body = { code, newPassword } → verifies OTP, updates password
+ */
+async function changePassword(req, res, next) {
+  try {
+    const { sub, role } = req.user || {};
+    if (!sub) return res.status(401).json({ ok: false, message: "Unauthorized" });
+
+    const UserModel = getUserModel(role);
+    const user = await UserModel.findById(sub).select("email name").lean();
+    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+
+    const { code, newPassword } = req.body || {};
+
+    // Mode 2: verify OTP + update password
+    if (code && newPassword) {
+      if (newPassword.trim().length < 6) {
+        return res.status(400).json({ ok: false, message: "New password must be at least 6 characters." });
+      }
+      verifyStoredCode(user.email, code.trim());
+      clearVerificationCode(user.email);
+      const hashed = await hashPassword(newPassword.trim());
+      await UserModel.findByIdAndUpdate(sub, { password: hashed });
+      return res.json({ ok: true, message: "Password updated successfully." });
+    }
+
+    // Mode 1: send OTP
+    const otp = generateVerificationCode();
+    const expiresAt = getVerificationCodeExpiration();
+    storeVerificationCode(user.email, otp, expiresAt);
+    await sendVerificationEmail(user.email, otp, user.name || "User");
+    return res.json({ ok: true, message: "Verification code sent to your email." });
+  } catch (err) {
+    if (
+      err.message?.includes("expired") ||
+      err.message?.includes("Invalid") ||
+      err.message?.includes("No verification")
+    ) {
+      return res.status(400).json({ ok: false, message: err.message });
+    }
+    next(err);
+  }
+}
+
+module.exports = { signup, verifyAndRegister, login, logout, changePassword };

@@ -81,7 +81,7 @@ async function updateProfile(req, res, next) {
     const citizenshipFront = files?.citizenshipFrontPhoto?.[0] || null;
     const citizenshipBack = files?.citizenshipBackPhoto?.[0] || null;
     const licensePhoto = files?.licensePhoto?.[0] || null;
-    const selfiePhoto = files?.selfiePhoto?.[0] || null;
+    const selfieWithId = files?.selfieWithId?.[0] || null;
 
     // helper to pick cloudinary url
     const pickUrl = (file) => {
@@ -110,10 +110,10 @@ async function updateProfile(req, res, next) {
       const images = {};
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
-      const profileUrl = pickUrl(selfiePhoto);
+      const profileUrl = pickUrl(selfieWithId);
       if (cFrontUrl) images.citizenshipFront = cFrontUrl;
       if (cBackUrl) images.citizenshipBack = cBackUrl;
-      if (profileUrl) images.profile = profileUrl;
+      if (profileUrl) { images.profile = profileUrl; images.selfieWithId = profileUrl; }
       if (Object.keys(images).length) updateData.image = images;
     } else if (role === "renter") {
       if (citizenshipNo)
@@ -124,11 +124,11 @@ async function updateProfile(req, res, next) {
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
       const licenseUrl = pickUrl(licensePhoto);
-      const selfieUrl = pickUrl(selfiePhoto);
+      const selfieWithIdUrl = pickUrl(selfieWithId);
       if (cFrontUrl) images.citizenshipFrontPhoto = cFrontUrl;
       if (cBackUrl) images.citizenshipBackPhoto = cBackUrl;
       if (licenseUrl) images.licensePhoto = licenseUrl;
-      if (selfieUrl) images.selfiePhoto = selfieUrl;
+      if (selfieWithIdUrl) images.selfieWithId = selfieWithIdUrl;
       if (Object.keys(images).length) updateData.image = images;
     }
 
@@ -243,4 +243,31 @@ async function removeFavorite(req, res, next) {
   }
 }
 
-module.exports = { getProfile, updateProfile, getFavorites, addFavorite, removeFavorite };
+async function updateProfilePhoto(req, res, next) {
+  try {
+    const { sub, role } = req.user || {};
+    if (!sub || !mongoose.Types.ObjectId.isValid(sub))
+      return res.status(400).json({ ok: false, message: "Invalid or missing user ID" });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ ok: false, message: "No image file provided" });
+
+    const url = file.path || file.secure_url || file.url || file.location || null;
+    if (!url) return res.status(500).json({ ok: false, message: "Upload failed: no URL returned" });
+
+    const UserModel = getUserModel(role);
+    const updated = await UserModel.findByIdAndUpdate(
+      sub,
+      { "image.profile": url },
+      { new: true, runValidators: false }
+    ).select("-password -__v");
+
+    if (!updated) return res.status(404).json({ ok: false, message: "User not found" });
+
+    res.json({ ok: true, user: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getProfile, updateProfile, updateProfilePhoto, getFavorites, addFavorite, removeFavorite };
