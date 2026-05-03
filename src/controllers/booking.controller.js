@@ -2,6 +2,7 @@ const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
 const Dispute = require("../models/dispute.model");
 const Renter = require("../models/users/renter.model");
+const { sendBookingApprovedPaymentEmail } = require("../services/email.service");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -49,6 +50,15 @@ async function attachExistingDisputes(items) {
   });
 
   return items;
+}
+
+function buildPaymentUrl() {
+  const frontendUrl = process.env.VERCEL_FRONTEND_URL;
+  if (!frontendUrl) {
+    return null;
+  }
+
+  return `${frontendUrl.replace(/\/$/, "")}/user/trips`;
 }
 
 // Create a booking (renter)
@@ -332,6 +342,33 @@ async function update(req, res, next) {
     }
 
     await booking.save();
+
+    if (action === "approve") {
+      try {
+        const renter = await Renter.findById(booking.renter)
+          .select("name email")
+          .lean();
+
+        if (renter?.email) {
+          const vehicleName = [vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "your booked vehicle";
+
+          await sendBookingApprovedPaymentEmail(renter.email, {
+            userName: renter.name || "User",
+            vehicleName,
+            startDate: booking.startDate,
+            endDate: booking.endDate,
+            totalPrice: booking.totalPrice,
+            bookingId: booking._id.toString(),
+            paymentUrl: buildPaymentUrl(),
+          });
+        }
+      } catch (emailError) {
+        console.error(
+          `Failed to send booking approval payment email for booking ${booking._id}:`,
+          emailError && emailError.message ? emailError.message : emailError,
+        );
+      }
+    }
 
     if (booking.status === "completed") {
       await Vehicle.findByIdAndUpdate(booking.vehicle, {

@@ -2,6 +2,11 @@ const User = require('../models/users/user.model');
 const Vehicle = require('../models/vehicle.model');
 const Booking = require('../models/booking.model');
 const Dispute = require('../models/dispute.model');
+const {
+  sendKycReviewEmail,
+  sendVehicleReviewEmail,
+  sendDisputeNotificationEmail,
+} = require('../services/email.service');
 
 const DISPUTE_STATUSES = ['open', 'in_review', 'escalated', 'resolved', 'rejected'];
 const ACTIVE_DISPUTE_STATUSES = ['open', 'in_review', 'escalated'];
@@ -127,6 +132,20 @@ async function verifyUser(req, res, next) {
     // set isVerified when schema supports it (discriminator)
     user.isVerified = true;
     await user.save();
+
+    if (user.email) {
+      sendKycReviewEmail(user.email, {
+        userName: user.name || 'User',
+        status: 'approved',
+        role: user.role,
+      }).catch((emailError) => {
+        console.error(
+          `Failed to send KYC approval email for user ${user._id}:`,
+          emailError && emailError.message ? emailError.message : emailError,
+        );
+      });
+    }
+
     res.json({ ok: true, user });
   } catch (e) { next(e); }
 }
@@ -203,11 +222,27 @@ async function getPendingVehicles(req, res, next) {
 async function verifyVehicle(req, res, next) {
   try {
     const id = req.params.id;
-    const vehicle = await Vehicle.findById(id);
+    const vehicle = await Vehicle.findById(id).populate('owner', 'name email');
     if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
     vehicle.isVerified = true;
     vehicle.status = 'active';
     await vehicle.save();
+
+    if (vehicle.owner?.email) {
+      const vehicleName = [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || 'Vehicle Listing';
+
+      sendVehicleReviewEmail(vehicle.owner.email, {
+        userName: vehicle.owner.name || 'User',
+        status: 'approved',
+        vehicleName,
+      }).catch((emailError) => {
+        console.error(
+          `Failed to send vehicle approval email for vehicle ${vehicle._id}:`,
+          emailError && emailError.message ? emailError.message : emailError,
+        );
+      });
+    }
+
     res.json({ ok: true, vehicle });
   } catch (e) { next(e); }
 }
@@ -216,12 +251,29 @@ async function verifyVehicle(req, res, next) {
 async function rejectVehicle(req, res, next) {
   try {
     const id = req.params.id;
-    const vehicle = await Vehicle.findById(id);
+    const { reason } = req.body;
+    const vehicle = await Vehicle.findById(id).populate('owner', 'name email');
     if (!vehicle) return res.status(404).json({ message: 'Vehicle not found' });
 
     vehicle.isVerified = false;
     vehicle.status = 'suspended';
     await vehicle.save();
+
+    if (vehicle.owner?.email) {
+      const vehicleName = [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || 'Vehicle Listing';
+
+      sendVehicleReviewEmail(vehicle.owner.email, {
+        userName: vehicle.owner.name || 'User',
+        status: 'rejected',
+        reason,
+        vehicleName,
+      }).catch((emailError) => {
+        console.error(
+          `Failed to send vehicle rejection email for vehicle ${vehicle._id}:`,
+          emailError && emailError.message ? emailError.message : emailError,
+        );
+      });
+    }
 
     res.json({ ok: true, vehicle, message: 'Vehicle listing rejected' });
   } catch (e) { next(e); }
@@ -314,6 +366,32 @@ async function createDispute(req, res, next) {
         evidences: evidence.map((file) => file.url),
       }],
     });
+
+    const [renterUser, ownerUser, vehicleInfo] = await Promise.all([
+      User.findById(booking.renter).select('name email').lean(),
+      User.findById(booking.owner).select('name email').lean(),
+      Booking.findById(bookingId)
+        .populate('vehicle', 'brand model')
+        .select('vehicle')
+        .lean(),
+    ]);
+
+    const vehicleName = [vehicleInfo?.vehicle?.brand, vehicleInfo?.vehicle?.model].filter(Boolean).join(' ') || 'Booked Vehicle';
+    const disputeId = `DIS-${String(dispute._id).slice(-6).toUpperCase()}`;
+    const recipients = [renterUser, ownerUser].filter((participant) => participant?.email);
+
+    await Promise.allSettled(
+      recipients.map((participant) =>
+        sendDisputeNotificationEmail(participant.email, {
+          userName: participant.name || 'User',
+          status: 'opened',
+          reason: String(reason).trim(),
+          bookingId: String(bookingId),
+          disputeId,
+          vehicleName,
+        }),
+      ),
+    );
 
     res.status(201).json({ ok: true, dispute: normalizeDispute(dispute), message: 'Dispute created successfully' });
   } catch (e) { next(e); }
@@ -487,7 +565,7 @@ async function resolveDispute(req, res, next) {
     const id = req.params.id;
     const { resolution, action, status = 'resolved' } = req.body; // action could be 'refund','cancel','none'
     const resolverId = req.user && (req.user._id || req.user.sub);
-    const dispute = await Dispute.findById(id).populate('bookingId', 'status');
+    const dispute = await Dispute.findById(id).populate('bookingId', 'status renter owner vehicle');
     if (!dispute) return res.status(404).json({ message: 'Dispute not found' });
 
     if (!DISPUTE_STATUSES.includes(status)) {
@@ -532,6 +610,24 @@ async function resolveDispute(req, res, next) {
       .populate('resolverId', 'name email role')
       .lean();
 
+    const recipients = [updated?.bookingId?.renter, updated?.bookingId?.owner].filter((participant) => participant?.email);
+    const vehicleName = [updated?.bookingId?.vehicle?.brand, updated?.bookingId?.vehicle?.model].filter(Boolean).join(' ') || 'Booked Vehicle';
+    const disputeId = `DIS-${String(updated._id).slice(-6).toUpperCase()}`;
+
+    await Promise.allSettled(
+      recipients.map((participant) =>
+        sendDisputeNotificationEmail(participant.email, {
+          userName: participant.name || 'User',
+          status,
+          resolution,
+          reason: updated.reason,
+          bookingId: String(updated.bookingId?._id || dispute.bookingId),
+          disputeId,
+          vehicleName,
+        }),
+      ),
+    );
+
     res.json({ ok: true, dispute: normalizeDispute(updated) });
   } catch (e) { next(e); }
 }
@@ -540,10 +636,26 @@ async function resolveDispute(req, res, next) {
 async function rejectUser(req, res, next) {
   try {
     const id = req.params.id;
+    const { reason } = req.body;
     const user = await User.findOne({ _id: id, role: { $in: ['owner', 'renter'] } });
     if (!user) return res.status(404).json({ message: 'User not found' });
     user.isVerified = false;
     await user.save();
+
+    if (user.email) {
+      sendKycReviewEmail(user.email, {
+        userName: user.name || 'User',
+        status: 'rejected',
+        reason,
+        role: user.role,
+      }).catch((emailError) => {
+        console.error(
+          `Failed to send KYC rejection email for user ${user._id}:`,
+          emailError && emailError.message ? emailError.message : emailError,
+        );
+      });
+    }
+
     res.json({ ok: true, message: 'User verification rejected', user });
   } catch (e) { next(e); }
 }
