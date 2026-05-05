@@ -21,6 +21,9 @@ const VehicleSchema = new Schema({
   // Engine and registration
   engineCc: { type: Number },
   registrationNumber: { type: String },
+  fuelType: { type: String, enum: ['petrol', 'electric'], required: true },
+  weight: { type: Number },
+  transmission: { type: String, enum: ['manual', 'automatic', 'semi-automatic'] },
 
   // Photos: simple list of URLs
   photos: { type: [String], default: [] },

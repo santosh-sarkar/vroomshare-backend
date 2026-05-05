@@ -106,6 +106,9 @@ async function create(req, res, next) {
       yearOfManufacture,
       engineCapacity,
       registrationNumber,
+      fuelType,
+      weight,
+      transmission,
       pickupLocation,
       dailyRate,
       description,
@@ -137,10 +140,12 @@ async function create(req, res, next) {
     dailyRate = Number(dailyRate);
     const year = yearOfManufacture ? Number(yearOfManufacture) : undefined;
     const engineCc = engineCapacity ? Number(engineCapacity) : undefined;
+    const weightKg = weight ? Number(weight) : undefined;
     if (
       !vehicleType ||
       !brand ||
       !modelName ||
+      !fuelType ||
       !description ||
       isNaN(dailyRate)
     )
@@ -148,11 +153,24 @@ async function create(req, res, next) {
         .status(400)
         .json({ ok: false, message: "Required fields missing or invalid" });
     const allowedTypes = ["motorcycle", "scooter", "electric"];
+    const allowedFuelTypes = ["petrol", "electric"];
     const normalizedType = vehicleType.toString().trim().toLowerCase();
+    const normalizedFuelType = fuelType.toString().trim().toLowerCase();
     if (!allowedTypes.includes(normalizedType))
       return res.status(400).json({
         ok: false,
         message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
+      });
+    if (!allowedFuelTypes.includes(normalizedFuelType))
+      return res.status(400).json({
+        ok: false,
+        message: `Invalid fuel type. Allowed: ${allowedFuelTypes.join(", ")}`,
+      });
+    const allowedTransmissions = ['manual', 'automatic', 'semi-automatic'];
+    if (transmission && !allowedTransmissions.includes(transmission.toString().trim().toLowerCase()))
+      return res.status(400).json({
+        ok: false,
+        message: `Invalid transmission. Allowed: ${allowedTransmissions.join(", ")}`,
       });
     if (yearOfManufacture && isNaN(year))
       return res
@@ -195,6 +213,9 @@ async function create(req, res, next) {
       year,
       engineCc,
       registrationNumber,
+      fuelType: normalizedFuelType,
+      weight: weightKg,
+      transmission: transmission ? transmission.toString().trim().toLowerCase() : undefined,
       description,
       features: features || [],
       pickup: {
