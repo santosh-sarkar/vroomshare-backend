@@ -156,9 +156,26 @@ async function getPendingUsers(req, res, next) {
     const { page = 1, limit = 20, search = '' } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
+    const hasAnyKycSubmission = {
+      $or: [
+        // Owner KYC fields
+        { 'image.citizenshipFront': { $exists: true, $ne: '' } },
+        { 'image.citizenshipBack': { $exists: true, $ne: '' } },
+        { 'image.selfieWithId': { $exists: true, $ne: '' } },
+
+        // Renter KYC fields
+        { citizenshipNo: { $exists: true, $ne: '' } },
+        { licenseNumber: { $exists: true, $ne: '' } },
+        { 'image.citizenshipFrontPhoto': { $exists: true, $ne: '' } },
+        { 'image.citizenshipBackPhoto': { $exists: true, $ne: '' } },
+        { 'image.licensePhoto': { $exists: true, $ne: '' } },
+      ],
+    };
+
     const filter = {
       role: { $in: ['owner', 'renter'] },
       isVerified: false,
+      ...hasAnyKycSubmission,
     };
 
     if (search && search.trim()) {
