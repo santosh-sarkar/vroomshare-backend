@@ -188,7 +188,7 @@ async function getPendingUsers(req, res, next) {
 
     const [users, total] = await Promise.all([
       User.find(filter)
-        .select('name email role phone createdAt isVerified image citizenshipNo licenseNumber')
+        .select('name email role phone createdAt isVerified image citizenshipNo licenseNumber kycData')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -205,7 +205,7 @@ async function getPendingUserById(req, res, next) {
   try {
     const id = req.params.id;
     const user = await User.findOne({ _id: id, role: { $in: ['owner', 'renter'] } })
-      .select('-password -__v')
+      .select('-password -__v') // kycData is included by default (not excluded)
       .lean();
 
     if (!user) return res.status(404).json({ message: 'User not found' });

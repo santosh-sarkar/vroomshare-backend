@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const { getUserModel } = require("../services/auth.service");
 const Vehicle = require("../models/vehicle.model");
+const { processKyc } = require("../ai/kyc.processor");
 
 async function getProfile(req, res, next) {
   try {
@@ -145,6 +146,17 @@ async function updateProfile(req, res, next) {
     }).select("-password -__v");
     if (!updated)
       return res.status(404).json({ ok: false, message: "User not found" });
+
+    // If KYC documents were uploaded in this request, kick off background analysis.
+    // We check whether any image field was part of the update to avoid redundant runs.
+    const hasKycImages = Object.keys(files).some((k) =>
+      ['citizenshipFrontPhoto', 'citizenshipBackPhoto', 'licensePhoto',
+       'selfieWithId', 'citizenshipFront', 'citizenshipBack'].includes(k),
+    );
+    if (hasKycImages) {
+      // Fire-and-forget – does not block the HTTP response
+      setImmediate(() => processKyc(String(sub)));
+    }
 
     res.json({ ok: true, user: updated });
   } catch (err) {
