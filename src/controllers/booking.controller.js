@@ -67,7 +67,6 @@ async function create(req, res, next) {
     const renterId = req.user && (req.user._id || req.user.sub);
     const { vehicleId, startDate, endDate } = req.body;
 
-    console.log(renterId, vehicleId, startDate, endDate);
 
     if (!renterId)
       return res.status(401).json({ message: "please login first" });
@@ -83,9 +82,6 @@ async function create(req, res, next) {
 
     const vehicle = await Vehicle.findById(vehicleId);
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
-
-    // if (!vehicle.availability)
-    //   return res.status(400).json({ message: 'Vehicle not available' });
 
     // SAFE DATE NORMALIZATION
     const start = new Date(startDate);
@@ -315,14 +311,15 @@ async function update(req, res, next) {
     } else if (action === "cancel") {
       booking.status = "cancelled";
       booking.completedAt = null;
-      vehicle.blockedDates = vehicle.blockedDates.filter(
-        (bd) =>
-          !(
-            bd.from.getTime() === booking.startDate.getTime() &&
-            bd.to.getTime() === booking.endDate.getTime()
-          )
-      );
-      await vehicle.save();
+      await Vehicle.findByIdAndUpdate(booking.vehicle, {
+        $pull: {
+          blockedDates: {
+            from: booking.startDate,
+            to: booking.endDate,
+          },
+        },
+      });
+      
     } else if (action === "ongoing") {
       booking.status = "ongoing";
       booking.completedAt = null;
