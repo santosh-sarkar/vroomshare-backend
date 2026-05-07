@@ -15,7 +15,10 @@ router.post('/', authenticateToken, authorizeRole('owner'), vehicleUpload.fields
     { name: 'documentImages', maxCount: 5 }
   ]), controller.create);
 router.get('/:id', controller.get);
-router.patch('/:id', authenticateToken, authorizeRole('owner'), controller.update);
+router.patch('/:id', authenticateToken, authorizeRole('owner'), vehicleUpload.fields([
+    { name: 'vehicleImages', maxCount: 5 },
+    { name: 'documentImages', maxCount: 5 }
+  ]), controller.update);
 router.delete('/:id', authenticateToken, authorizeRole('owner'), controller.remove);
 
 module.exports = router;

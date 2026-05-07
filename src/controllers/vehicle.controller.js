@@ -265,23 +265,12 @@ async function get(req, res, next) {
 async function update(req, res, next) {
   try {
     const allowed = [
-      "title",
-      "description",
-      "vehicleType",
-      "type",
-      "location",
-      "pricePerDay",
-      "pricing",
-      "images",
-      "availability",
-      "isVerified",
-      "brand",
-      "model",
-      "year",
-      "engineCc",
-      "registrationNumber",
-      "documents",
-      "status",
+      "title", "description", "vehicleType", "type", "location",
+      "pricePerDay", "pricing", "images", "availability", "isVerified",
+      "brand", "model", "modelName", "year", "yearOfManufacture",
+      "engineCc", "engineCapacity", "registrationNumber", "fuelType",
+      "weight", "transmission", "features", "documents", "status",
+      "dailyRate", "pickupLocation",
     ];
     const patch = {};
     for (const key of allowed) {
@@ -289,45 +278,71 @@ async function update(req, res, next) {
         patch[key] = req.body[key];
     }
 
-    // map vehicleType -> type and normalize
+    // ── field name aliases ────────────────────────────────────────────────
+    // modelName → model
+    if (patch.modelName !== undefined) { patch.model = patch.modelName; delete patch.modelName; }
+    // yearOfManufacture → year
+    if (patch.yearOfManufacture !== undefined) { patch.year = Number(patch.yearOfManufacture); delete patch.yearOfManufacture; }
+    // engineCapacity → engineCc
+    if (patch.engineCapacity !== undefined) { patch.engineCc = Number(patch.engineCapacity); delete patch.engineCapacity; }
+    // weight / engineCc: ensure numeric
+    if (patch.weight !== undefined) patch.weight = Number(patch.weight);
+    if (patch.engineCc !== undefined) patch.engineCc = Number(patch.engineCc);
+    // dailyRate → pricing.dailyRate
+    if (patch.dailyRate !== undefined) {
+      patch.pricing = { dailyRate: Number(patch.dailyRate) };
+      delete patch.dailyRate;
+    }
+    // pickupLocation → pickup (may be JSON string from FormData)
+    if (patch.pickupLocation !== undefined) {
+      try {
+        const loc = typeof patch.pickupLocation === 'string'
+          ? JSON.parse(patch.pickupLocation)
+          : patch.pickupLocation;
+        patch.pickup = {
+          neighborhood: loc.city || loc.neighborhood || '',
+          address:      loc.city || loc.address || '',
+          coordinates:  [
+            Number(loc.coordinates?.lng ?? 0),
+            Number(loc.coordinates?.lat ?? 0),
+          ],
+        };
+      } catch (_) { /* ignore parse error, skip pickup update */ }
+      delete patch.pickupLocation;
+    }
+    // features: may arrive as JSON string from FormData
+    if (patch.features !== undefined && typeof patch.features === 'string') {
+      try { patch.features = JSON.parse(patch.features); } catch (_) { delete patch.features; }
+    }
+
+    // ── vehicleType → type ────────────────────────────────────────────────
     const allowedTypes = ["motorcycle", "scooter", "electric"];
-    if (
-      Object.prototype.hasOwnProperty.call(req.body, "vehicleType") ||
-      Object.prototype.hasOwnProperty.call(req.body, "type")
-    ) {
-      const incoming = Object.prototype.hasOwnProperty.call(
-        req.body,
-        "vehicleType",
-      )
-        ? req.body.vehicleType
-        : req.body.type;
-      const normalized = incoming
-        ? incoming.toString().trim().toLowerCase()
-        : "";
+    if (patch.vehicleType !== undefined || patch.type !== undefined) {
+      const incoming = patch.vehicleType ?? patch.type;
+      const normalized = incoming ? incoming.toString().trim().toLowerCase() : "";
       if (!allowedTypes.includes(normalized)) {
-        return res.status(400).json({
-          message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
-        });
+        return res.status(400).json({ message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}` });
       }
       patch.type = normalized;
-      // remove vehicleType if present to avoid confusion
       delete patch.vehicleType;
     }
 
+    // ── status ────────────────────────────────────────────────────────────
     const allowedStatuses = ["pending", "active", "on-trip", "suspended", "archived"];
-    if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
-      const normalizedStatus = req.body.status
-        ? req.body.status.toString().trim().toLowerCase()
-        : "";
+    if (patch.status !== undefined) {
+      const normalizedStatus = patch.status ? patch.status.toString().trim().toLowerCase() : "";
       if (!allowedStatuses.includes(normalizedStatus)) {
-        return res.status(400).json({
-          message: `Invalid vehicle status. Allowed: ${allowedStatuses.join(", ")}`,
-        });
+        return res.status(400).json({ message: `Invalid vehicle status. Allowed: ${allowedStatuses.join(", ")}` });
       }
       patch.status = normalizedStatus;
     }
 
-    if (Object.keys(patch).length === 0 && !req.file && !req.files) {
+    const hasFiles = req.files && (
+      (req.files.vehicleImages && req.files.vehicleImages.length > 0) ||
+      (req.files.documentImages && req.files.documentImages.length > 0)
+    );
+
+    if (Object.keys(patch).length === 0 && !hasFiles) {
       return res.status(400).json({ message: "No valid fields to update" });
     }
 
@@ -335,35 +350,52 @@ async function update(req, res, next) {
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
 
     const authUserId = req.user && (req.user._id || req.user.sub);
-    if (
-      authUserId &&
-      vehicle.owner &&
-      vehicle.owner.toString() !== authUserId.toString()
-    ) {
-      return res
-        .status(403)
-        .json({ message: "Not authorized to update this vehicle" });
+    if (authUserId && vehicle.owner && vehicle.owner.toString() !== authUserId.toString()) {
+      return res.status(403).json({ message: "Not authorized to update this vehicle" });
     }
 
     Object.assign(vehicle, patch);
-    // If a new image was uploaded, add to photos array
-    if (req.file) {
-      const url = req.file.path || req.file.secure_url || null;
-      const public_id = req.file.filename || req.file.public_id || null;
-      if (url) {
-        if (!Array.isArray(vehicle.photos)) vehicle.photos = [];
-        vehicle.photos.push(url);
+
+    // ── handle uploaded photos ────────────────────────────────────────────
+    if (hasFiles) {
+      if (req.files.vehicleImages && req.files.vehicleImages.length > 0) {
+        const newUrls = req.files.vehicleImages.map((f) => f.path || f.secure_url);
+        // If existingPhotos slot map is provided, rebuild the array in-place.
+        // existingPhotos is a JSON array [url|null, ...]; null means this slot
+        // is replaced by the next entry in newUrls.
+        if (req.body.existingPhotos) {
+          try {
+            const slotMap = JSON.parse(req.body.existingPhotos); // [url|null, ...]
+            let uploadIdx = 0;
+            const rebuilt = slotMap.map((existing) => {
+              if (existing === null) return newUrls[uploadIdx++] ?? null;
+              return existing;
+            });
+            // Drop trailing nulls and append any overflow uploads
+            const trimmed = rebuilt.filter(Boolean);
+            while (uploadIdx < newUrls.length) trimmed.push(newUrls[uploadIdx++]);
+            vehicle.photos = trimmed;
+          } catch (_) {
+            // Fallback: just append if parse fails
+            if (!Array.isArray(vehicle.photos)) vehicle.photos = [];
+            vehicle.photos.push(...newUrls);
+          }
+        } else {
+          // No slot map — append (legacy behaviour)
+          if (!Array.isArray(vehicle.photos)) vehicle.photos = [];
+          vehicle.photos.push(...newUrls);
+        }
       }
-      if (public_id) vehicle.lastImagePublicId = public_id;
+      if (req.files.documentImages && req.files.documentImages.length > 0) {
+        req.files.documentImages.forEach((f) => {
+          if (!Array.isArray(vehicle.documents)) vehicle.documents = [];
+          vehicle.documents.push({ url: f.path || f.secure_url, verified: false });
+        });
+      }
     }
+
     await vehicle.save();
-    const resp = { ok: true, vehicle };
-    if (req.file)
-      resp.upload = {
-        url: req.file.path || req.file.secure_url,
-        public_id: req.file.filename || req.file.public_id,
-      };
-    res.json(resp);
+    res.json({ ok: true, vehicle });
   } catch (e) {
     next(e);
   }
