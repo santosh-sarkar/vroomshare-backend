@@ -9,6 +9,9 @@ router.post('/', authenticateToken, authorizeRole('renter'), controller.create);
 // Renter view bookings
 router.get('/renter', authenticateToken, authorizeRole('renter'), controller.renterBookings);
 
+// Check if renter has active booking for a vehicle
+router.get('/vehicle/:vehicleId/status', authenticateToken, authorizeRole('renter'), controller.checkVehicleBookingStatus);
+
 // Owner view bookings
 router.get('/owner', authenticateToken, authorizeRole('owner'), controller.ownerBookings);
 

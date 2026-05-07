@@ -91,6 +91,22 @@ async function create(req, res, next) {
       return res.status(400).json({ message: "Invalid date range" });
     }
 
+    // DUPLICATE REQUEST CHECK — same renter, same vehicle, still active
+    const existingRequest = await Booking.findOne({
+      vehicle: vehicleId,
+      renter: renterId,
+      status: { $in: ["requested", "approved", "confirmed", "ongoing"] },
+    });
+
+    if (existingRequest) {
+      return res.status(409).json({
+        ok: false,
+        message: "You already have an active booking request for this vehicle.",
+        existingBookingId: existingRequest._id,
+        existingStatus: existingRequest.status,
+      });
+    }
+
     // OVERLAP CHECK (correct)
     const overlapping = await Booking.findOne({
       vehicle: vehicleId,
@@ -409,4 +425,33 @@ async function update(req, res, next) {
   }
 }
 
-module.exports = { create, get, renterBookings, ownerBookings, update };
+// Check if renter has an active booking for a vehicle
+async function checkVehicleBookingStatus(req, res, next) {
+  try {
+    const renterId = req.user && (req.user._id || req.user.sub);
+    if (!renterId) return res.status(401).json({ ok: false, message: "Authentication required" });
+
+    const { vehicleId } = req.params;
+    if (!vehicleId) return res.status(400).json({ ok: false, message: "vehicleId is required" });
+
+    const existing = await Booking.findOne({
+      vehicle: vehicleId,
+      renter: renterId,
+      status: { $in: ["requested", "approved", "confirmed", "ongoing"] },
+    }).select("status _id startDate endDate totalPrice").lean();
+
+    res.json({
+      ok: true,
+      hasActiveBooking: !!existing,
+      status: existing ? existing.status : null,
+      bookingId: existing ? existing._id : null,
+      startDate: existing ? existing.startDate : null,
+      endDate: existing ? existing.endDate : null,
+      totalPrice: existing ? existing.totalPrice : null,
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus };
