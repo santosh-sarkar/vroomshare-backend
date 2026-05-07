@@ -26,6 +26,11 @@ const EMAIL_CONFIGS = {
 		footer: 'This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.',
 		disclaimer: "If you didn't request this change, please contact our support immediately.",
 	},
+	booking_request: {
+		subject: 'New Booking Request - VroomShare',
+		title: 'New Booking Request',
+		heading: 'You have a new booking request',
+	},
 	booking_approved_payment: {
 		subject: 'Booking Approved - Complete Your Payment - VroomShare',
 		title: 'Booking Approved',
@@ -307,6 +312,8 @@ function buildStatusNotificationHtml({
 	details = [],
 	reason,
 	nextSteps,
+	ctaUrl,
+	ctaLabel,
 	noticeTone = 'info',
 }) {
 	const toneStyles = {
@@ -332,6 +339,8 @@ function buildStatusNotificationHtml({
 	const infoRows = buildInfoRows(details);
 	const safeReason = reason && String(reason).trim() ? escapeHtml(reason) : null;
 	const safeNextSteps = nextSteps && String(nextSteps).trim() ? escapeHtml(nextSteps) : null;
+	const safeCtaUrl = ctaUrl && String(ctaUrl).trim() ? escapeHtml(ctaUrl) : null;
+	const safeCtaLabel = ctaLabel && String(ctaLabel).trim() ? escapeHtml(ctaLabel) : 'Go to Dashboard';
 
 	return `
 		<!DOCTYPE html>
@@ -365,8 +374,7 @@ function buildStatusNotificationHtml({
 									<p style="font-size:15px; color:#374151; margin:0 0 24px 0; line-height:1.6;">${escapeHtml(message)}</p>
 									${infoRows ? `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb; border-radius:6px; border:1px solid #e5e7eb; margin-bottom:24px;"><tr><td style="padding:24px;"><p style="margin:0 0 12px 0; font-size:14px; color:#6b7280; text-transform:uppercase; letter-spacing:1px;">Details</p>${infoRows}</td></tr></table>` : ''}
 									${safeReason ? `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${tone.background}; border-radius:6px; border:1px solid ${tone.border}; margin-bottom:24px;"><tr><td style="padding:20px;"><p style="margin:0 0 10px 0; font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:${tone.text};">Reason</p><p style="margin:0; font-size:15px; line-height:1.7; color:#111827;">${safeReason}</p></td></tr></table>` : ''}
-									${safeNextSteps ? `<p style="font-size:14px; color:#374151; margin:0 0 8px 0; line-height:1.6;">${safeNextSteps}</p>` : ''}
-									<p style="font-size:14px; color:#374151; margin:0; line-height:1.6;">If you need help, reply through your VroomShare account or contact support.</p>
+									${safeNextSteps ? `<p style="font-size:14px; color:#374151; margin:0 0 8px 0; line-height:1.6;">${safeNextSteps}</p>` : ''}								${safeCtaUrl ? `<p style="margin:0 0 24px 0;"><a href="${safeCtaUrl}" style="display:inline-block;background-color:#008493;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:600;">${safeCtaLabel}</a></p>` : ''}									<p style="font-size:14px; color:#374151; margin:0; line-height:1.6;">If you need help, reply through your VroomShare account or contact support.</p>
 								</td>
 							</tr>
 							<tr>
@@ -444,6 +452,33 @@ async function sendPasswordResetEmail(email, code, userName) {
 
 async function sendEmailChangeEmail(email, code, userName) {
 	return sendEmail(email, code, userName, 'email_change');
+}
+
+async function sendBookingRequestEmail(email, { ownerName, renterName, vehicleName, startDate, endDate, totalPrice, platformFeeRate = 0.15, bookingId, dashboardUrl }) {
+	const config = EMAIL_CONFIGS.booking_request;
+	const platformFee = totalPrice * platformFeeRate;
+	const netAmount = totalPrice - platformFee;
+	const html = buildStatusNotificationHtml({
+		title: config.title,
+		heading: config.heading,
+		userName: ownerName,
+		message: `${renterName || 'A renter'} has requested to book your vehicle ${vehicleName || 'your vehicle'}. Please review and respond from your dashboard.`,
+		details: [
+			{ label: 'Booking ID', value: bookingId },
+			{ label: 'Vehicle', value: vehicleName },
+			{ label: 'Renter', value: renterName },
+			{ label: 'Pickup Date', value: formatBookingDate(startDate) },
+			{ label: 'Return Date', value: formatBookingDate(endDate) },
+			{ label: 'Booking Total', value: formatCurrency(totalPrice) },
+			{ label: `Platform Fee (${Math.round(platformFeeRate * 100)}%)`, value: `- ${formatCurrency(platformFee)}` },
+			{ label: 'You Receive', value: formatCurrency(netAmount) },
+		],
+		nextSteps: dashboardUrl ? null : 'Log in to your VroomShare owner dashboard to approve or reject this request.',
+		ctaUrl: dashboardUrl || null,
+		ctaLabel: 'Review Booking',
+		noticeTone: 'info',
+	});
+	return sendRenderedEmail(email, config.subject, html, 'sendBookingRequestEmail');
 }
 
 async function sendBookingApprovedPaymentEmail(email, details) {
@@ -535,6 +570,7 @@ module.exports = {
 	sendVerificationEmail,
 	sendPasswordResetEmail,
 	sendEmailChangeEmail,
+	sendBookingRequestEmail,
 	sendBookingApprovedPaymentEmail,
 	sendKycReviewEmail,
 	sendVehicleReviewEmail,

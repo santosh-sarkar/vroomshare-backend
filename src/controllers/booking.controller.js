@@ -2,7 +2,7 @@ const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
 const Dispute = require("../models/dispute.model");
 const Renter = require("../models/users/renter.model");
-const { sendBookingApprovedPaymentEmail } = require("../services/email.service");
+const { sendBookingApprovedPaymentEmail, sendBookingRequestEmail } = require("../services/email.service");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -134,6 +134,31 @@ async function create(req, res, next) {
     res
       .status(201)
       .json({ ok: true, msg: "Booking created successfully", booking });
+
+    // Notify owner about the new booking request (fire-and-forget)
+    try {
+      const Owner = require("../models/users/owner.model");
+      const owner = await Owner.findById(vehicle.owner).select("name email").lean();
+      if (owner && owner.email) {
+        const renter = await Renter.findById(renterId).select("name").lean();
+        const dashboardUrl = process.env.VERCEL_FRONTEND_URL
+          ? `${process.env.VERCEL_FRONTEND_URL.replace(/\/$/, "")}/owner/bookings`
+          : null;
+        await sendBookingRequestEmail(owner.email, {
+          ownerName: owner.name || "Owner",
+          renterName: renter && renter.name ? renter.name : "A renter",
+          vehicleName: `${vehicle.brand || ""} ${vehicle.model || ""}`.trim(),
+          startDate: start,
+          endDate: end,
+          totalPrice,
+          platformFeeRate: 0.15,
+          bookingId: String(booking._id),
+          dashboardUrl,
+        });
+      }
+    } catch (emailErr) {
+      console.error("Failed to send booking request email to owner:", emailErr && emailErr.message ? emailErr.message : emailErr);
+    }
   } catch (e) {
     next(e);
   }
