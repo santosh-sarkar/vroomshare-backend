@@ -21,4 +21,7 @@ router.get('/:id', authenticateToken, controller.get);
 // Owner updates booking status
 router.put('/:id/status', authenticateToken, authorizeRole('owner'), controller.update);
 
+// Renter cancels a requested booking
+router.put('/:id/cancel', authenticateToken, authorizeRole('renter'), controller.cancelByRenter);
+
 module.exports = router;

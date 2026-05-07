@@ -454,4 +454,28 @@ async function checkVehicleBookingStatus(req, res, next) {
   }
 }
 
-module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus };
+// Cancel booking by renter (only when status is "requested")
+async function cancelByRenter(req, res, next) {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ ok: false, message: 'Booking not found' });
+
+    const renterId = req.user && (req.user._id || req.user.sub);
+    if (!renterId || booking.renter.toString() !== renterId.toString()) {
+      return res.status(403).json({ ok: false, message: 'Not authorized' });
+    }
+
+    if (booking.status !== 'requested') {
+      return res.status(400).json({ ok: false, message: `Cannot cancel a booking with status "${booking.status}"` });
+    }
+
+    booking.status = 'cancelled';
+    await booking.save();
+
+    res.json({ ok: true, message: 'Booking cancelled successfully' });
+  } catch (e) {
+    next(e);
+  }
+}
+
+module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus, cancelByRenter };
