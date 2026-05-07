@@ -42,7 +42,7 @@ async function updateProfile(req, res, next) {
     }
 
     // Extract fields from FormData / body
-    const { name, dob, phone, citizenshipNo, licenseNumber } = req.body || {};
+    const { name, dob, phone, citizenshipNo, licenseNumber, gender } = req.body || {};
 
     // ADDRESS: support either a JSON `address` field or bracketed fields from form-data
     let address = {};
@@ -97,6 +97,7 @@ async function updateProfile(req, res, next) {
       const d = new Date(dob);
       if (!isNaN(d.getTime())) updateData.dob = d;
     }
+    if (gender) updateData.gender = String(gender).trim().toLowerCase();
     if (phone) updateData.phone = String(phone).trim();
     // address: only include keys that are present
     const addrKeys = ["province", "district", "municipality", "wardNo"];

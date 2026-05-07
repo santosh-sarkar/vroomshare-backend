@@ -22,6 +22,7 @@ const UserSchema = new mongoose.Schema(
     email:    { type: String, required: true, unique: true },
     password: { type: String, required: true },
     dob:      { type: Date },
+    gender:   { type: String, enum: ['male', 'female', 'other'], default: null },
     address: {
       province:     { type: String },
       district:     { type: String },
