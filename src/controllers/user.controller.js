@@ -140,6 +140,23 @@ async function updateProfile(req, res, next) {
         .json({ ok: false, message: "No valid fields to update" });
     }
 
+    // Security: if the user is already verified and they are updating KYC-sensitive
+    // fields (documents or ID numbers), revoke verification so an admin re-reviews.
+    const kycSensitiveFieldsChanged =
+      updateData.image ||
+      updateData.citizenshipNo ||
+      updateData.licenseNumber;
+
+    if (kycSensitiveFieldsChanged) {
+      const currentUser = await UserModel.findById(sub).select('isVerified').lean();
+      if (currentUser?.isVerified) {
+        updateData.isVerified = false;
+        updateData['kycData.aiStatus'] = 'pending';
+        updateData['kycData.faceMatchScore'] = null;
+        updateData['kycData.finalScore'] = null;
+      }
+    }
+
     // Perform update
     const updated = await UserModel.findByIdAndUpdate(sub, updateData, {
       new: true,
