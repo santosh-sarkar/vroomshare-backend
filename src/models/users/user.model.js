@@ -47,7 +47,10 @@ const UserSchema = new mongoose.Schema(
         type: String,
         enum: [
           null,
-          'matched',           // faces compared successfully
+          'very_strong_match', // score 80–100
+          'good_match',        // score 60–79
+          'possible_match',    // score 40–59
+          'weak_match',        // score below 40
           'face_api_unavailable', // face-api models not loaded
           'no_face_in_selfie', // could not detect face in selfie image
           'no_face_in_document', // could not detect face in ID photo

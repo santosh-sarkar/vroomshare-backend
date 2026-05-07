@@ -153,20 +153,28 @@ async function updateProfile(req, res, next) {
         .json({ ok: false, message: "No valid fields to update" });
     }
 
-    // Security: if the user is already verified and they are updating KYC-sensitive
-    // fields (documents or ID numbers), revoke verification so an admin re-reviews.
-    const kycSensitiveFieldsChanged =
-      updateData.image ||
-      updateData.citizenshipNo ||
-      updateData.licenseNumber;
+    // Determine if KYC images are being re-uploaded in this request.
+    const hasKycImagesInUpdate = Object.keys(files).some((k) =>
+      ['citizenshipFrontPhoto', 'citizenshipBackPhoto', 'licensePhoto',
+       'selfieWithId', 'citizenshipFront', 'citizenshipBack'].includes(k),
+    );
 
-    if (kycSensitiveFieldsChanged) {
+    // Whenever KYC documents are re-uploaded, wipe all previous AI results so
+    // the admin and frontend never see stale data from the old submission.
+    if (hasKycImagesInUpdate) {
+      updateData.isVerified = false;
+      updateData['kycData.aiStatus']        = 'pending';
+      updateData['kycData.faceMatchScore']  = null;
+      updateData['kycData.faceMatchNote']   = null;
+      updateData['kycData.finalScore']      = null;
+      updateData['kycData.processedAt']     = null;
+      updateData['kycData.ocrData']         = { citizenship: {}, license: {} };
+    } else if (updateData.citizenshipNo || updateData.licenseNumber) {
+      // Security: ID numbers changed without new images → also revoke verification.
       const currentUser = await UserModel.findById(sub).select('isVerified').lean();
       if (currentUser?.isVerified) {
         updateData.isVerified = false;
         updateData['kycData.aiStatus'] = 'pending';
-        updateData['kycData.faceMatchScore'] = null;
-        updateData['kycData.finalScore'] = null;
       }
     }
 
@@ -180,11 +188,7 @@ async function updateProfile(req, res, next) {
 
     // If KYC documents were uploaded in this request, kick off background analysis.
     // We check whether any image field was part of the update to avoid redundant runs.
-    const hasKycImages = Object.keys(files).some((k) =>
-      ['citizenshipFrontPhoto', 'citizenshipBackPhoto', 'licensePhoto',
-       'selfieWithId', 'citizenshipFront', 'citizenshipBack'].includes(k),
-    );
-    if (hasKycImages) {
+    if (hasKycImagesInUpdate) {
       // Fire-and-forget in a Worker Thread – never blocks the HTTP event loop
       runKycWorker(sub);
     }

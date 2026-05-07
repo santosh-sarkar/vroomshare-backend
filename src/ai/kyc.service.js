@@ -20,6 +20,8 @@ const Tesseract = require('tesseract.js');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { createCanvas } = require('canvas');
+const cloudinary = require('../config/cloudinary');
 
 // ─── Face-api lazy loader ─────────────────────────────────────────────────────
 
@@ -210,7 +212,17 @@ async function compareFaces(selfieUrl, idPhotoUrl) {
 
   // Map distance to 0–100 score (linear clamp)
   const score = Math.round(Math.max(0, (1 - distance / 0.6) * 100));
-  return { score, note: 'matched' };
+
+  // Determine note based on score range:
+  // 80–100 → very_strong_match, 60–80 → good_match,
+  // 40–60 → possible_match, below 40 → weak_match
+  let note;
+  if (score >= 80)      note = 'very_strong_match';
+  else if (score >= 60) note = 'good_match';
+  else if (score >= 40) note = 'possible_match';
+  else                  note = 'weak_match';
+
+  return { score, note };
 }
 
 // ─── Completeness scoring ────────────────────────────────────────────────────
