@@ -43,6 +43,18 @@ const UserSchema = new mongoose.Schema(
         license:     { type: kycOcrDocSchema }, // used by renter only
       },
       faceMatchScore: { type: Number, default: null }, // 0–100
+      faceMatchNote: {
+        type: String,
+        enum: [
+          null,
+          'matched',           // faces compared successfully
+          'face_api_unavailable', // face-api models not loaded
+          'no_face_in_selfie', // could not detect face in selfie image
+          'no_face_in_document', // could not detect face in ID photo
+          'no_face_in_both',   // detection failed in both images
+        ],
+        default: null,
+      },
       finalScore:     { type: Number, default: null }, // 0–100 trust score
       aiStatus: {
         type:    String,

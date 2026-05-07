@@ -19,6 +19,7 @@
 const Tesseract = require('tesseract.js');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 
 // ─── Face-api lazy loader ─────────────────────────────────────────────────────
 
@@ -119,6 +120,35 @@ function parseDocumentFields(text) {
   };
 }
 
+// ─── Image fetching ───────────────────────────────────────────────────────────
+
+/**
+ * Fetch an image URL as a raw Buffer.
+ *
+ * For Cloudinary URLs we append `/f_jpg,q_auto` to force JPEG delivery,
+ * which avoids 'Unsupported image type' errors when canvas receives WebP
+ * (Cloudinary's default auto-format) that the bundled libpng/libjpeg cannot
+ * decode on Windows.
+ *
+ * @param {string} url
+ * @returns {Promise<Buffer>}
+ */
+async function fetchImageBuffer(url) {
+  // Rewrite Cloudinary URLs to force JPEG output
+  let fetchUrl = url;
+  if (url && url.includes('res.cloudinary.com')) {
+    // Insert f_jpg,q_auto into the transformation segment
+    // e.g. https://res.cloudinary.com/<cloud>/image/upload/v123/file.webp
+    //   -> https://res.cloudinary.com/<cloud>/image/upload/f_jpg,q_auto/v123/file.webp
+    fetchUrl = url.replace(
+      /(\/image\/upload\/)/,
+      '/image/upload/f_jpg,q_auto/',
+    );
+  }
+  const response = await axios.get(fetchUrl, { responseType: 'arraybuffer', timeout: 15000 });
+  return Buffer.from(response.data);
+}
+
 // ─── Face comparison ──────────────────────────────────────────────────────────
 
 /**
@@ -128,16 +158,29 @@ function parseDocumentFields(text) {
  * @param {string} idPhotoUrl URL of the citizenship front photo
  * @returns {Promise<number|null>}  0–100 score, or null if detection failed
  */
+/**
+ * @typedef {{ score: number|null, note: string }} FaceResult
+ */
+
 async function compareFaces(selfieUrl, idPhotoUrl) {
   const api = await loadFaceApi();
-  if (!api) return null;
+  if (!api) {
+    console.warn('[KYC] face-api unavailable – skipping face match');
+    return { score: null, note: 'face_api_unavailable' };
+  }
 
   const { faceapi, loadImage } = api;
 
-  // Download both images in parallel
+  // Fetch as buffers first – avoids 'Unsupported image type' when canvas
+  // receives a WebP URL (Cloudinary auto-format) it cannot decode.
+  const [selfieBuf, idBuf] = await Promise.all([
+    fetchImageBuffer(selfieUrl),
+    fetchImageBuffer(idPhotoUrl),
+  ]);
+
   const [selfieImg, idImg] = await Promise.all([
-    loadImage(selfieUrl),
-    loadImage(idPhotoUrl),
+    loadImage(selfieBuf),
+    loadImage(idBuf),
   ]);
 
   // Detect a single face + landmarks + descriptor in each image
@@ -146,9 +189,17 @@ async function compareFaces(selfieUrl, idPhotoUrl) {
     faceapi.detectSingleFace(idImg).withFaceLandmarks().withFaceDescriptor(),
   ]);
 
-  if (!selfieFace || !idFace) {
-    console.warn('[KYC] Could not detect a face in one of the images');
-    return null;
+  if (!selfieFace && !idFace) {
+    console.warn('[KYC] Could not detect a face in either image');
+    return { score: null, note: 'no_face_in_both' };
+  }
+  if (!selfieFace) {
+    console.warn('[KYC] Could not detect a face in the selfie image');
+    return { score: null, note: 'no_face_in_selfie' };
+  }
+  if (!idFace) {
+    console.warn('[KYC] Could not detect a face in the document photo');
+    return { score: null, note: 'no_face_in_document' };
   }
 
   // Euclidean distance: 0.0 = identical, 0.6+ = different person
@@ -159,7 +210,7 @@ async function compareFaces(selfieUrl, idPhotoUrl) {
 
   // Map distance to 0–100 score (linear clamp)
   const score = Math.round(Math.max(0, (1 - distance / 0.6) * 100));
-  return score;
+  return { score, note: 'matched' };
 }
 
 // ─── Completeness scoring ────────────────────────────────────────────────────

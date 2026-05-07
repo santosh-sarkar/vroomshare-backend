@@ -1,7 +1,20 @@
 const mongoose = require("mongoose");
+const path = require("path");
+const { Worker } = require("worker_threads");
 const { getUserModel } = require("../services/auth.service");
 const Vehicle = require("../models/vehicle.model");
-const { processKyc } = require("../ai/kyc.processor");
+
+// Run KYC in a worker thread so it never blocks the Express event loop
+function runKycWorker(userId) {
+  const worker = new Worker(path.join(__dirname, '../ai/kyc.worker.js'), {
+    workerData: { userId: String(userId) },
+  });
+  worker.on('message', (msg) => {
+    if (!msg.ok) console.error(`[KYC] Worker error for ${userId}:`, msg.error);
+    else console.log(`[KYC] Worker finished for ${userId}`);
+  });
+  worker.on('error', (err) => console.error(`[KYC] Worker threw for ${userId}:`, err.message));
+}
 
 async function getProfile(req, res, next) {
   try {
@@ -172,8 +185,8 @@ async function updateProfile(req, res, next) {
        'selfieWithId', 'citizenshipFront', 'citizenshipBack'].includes(k),
     );
     if (hasKycImages) {
-      // Fire-and-forget – does not block the HTTP response
-      setImmediate(() => processKyc(String(sub)));
+      // Fire-and-forget in a Worker Thread – never blocks the HTTP event loop
+      runKycWorker(sub);
     }
 
     res.json({ ok: true, user: updated });

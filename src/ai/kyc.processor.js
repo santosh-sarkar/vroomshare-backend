@@ -81,8 +81,11 @@ async function processKyc(userId) {
 
     // ── 4. Face comparison ────────────────────────────────────────────────
     let faceScore = null;
+    let faceMatchNote = null;
     if (image.selfieWithId && citizenshipUrl) {
-      faceScore = await compareFaces(image.selfieWithId, citizenshipUrl);
+      const faceResult = await compareFaces(image.selfieWithId, citizenshipUrl);
+      faceScore = faceResult.score;
+      faceMatchNote = faceResult.note;
     }
 
     // ── 5. Completeness + final score ─────────────────────────────────────
@@ -98,6 +101,7 @@ async function processKyc(userId) {
       kycData: {
         ocrData,
         faceMatchScore: faceScore,
+        faceMatchNote,
         finalScore,
         aiStatus: 'completed',
         processedAt: new Date(),
