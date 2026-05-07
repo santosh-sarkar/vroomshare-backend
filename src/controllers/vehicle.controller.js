@@ -1,5 +1,6 @@
 const Vehicle = require("../models/vehicle.model");
 const Review = require("../models/review.model");
+const Owner = require("../models/users/owner.model");
 const mongoose = require("mongoose");
 
 async function list(req, res, next) {
@@ -97,6 +98,13 @@ async function create(req, res, next) {
       return res
         .status(400)
         .json({ ok: false, message: "Invalid or missing owner ID" });
+
+    // Ensure owner has completed KYC verification
+    const ownerDoc = await Owner.findById(owner).select("isVerified").lean();
+    if (!ownerDoc?.isVerified)
+      return res
+        .status(403)
+        .json({ ok: false, message: "KYC verification required before listing a vehicle." });
 
     // Extract fields from FormData
     let {
