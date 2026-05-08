@@ -451,7 +451,7 @@ async function getOwnerEarningsDetails(req, res, next) {
         {
           $match: {
             owner: ownerObjectId,
-            status: { $in: ['pending', 'approved', 'paid'] },
+            status: { $in: ['pending', 'paid'] },
           },
         },
         {
@@ -475,7 +475,7 @@ async function getOwnerEarningsDetails(req, res, next) {
           },
         },
       ]),
-      PayoutRequest.find({ owner: ownerObjectId, status: { $in: ['pending', 'approved'] } })
+      PayoutRequest.find({ owner: ownerObjectId, status: 'pending' })
         .select('amount status paymentMethod payoutDetails createdAt updatedAt note')
         .sort({ createdAt: -1 })
         .lean(),
@@ -539,7 +539,7 @@ async function updatePayoutRequestStatus(req, res, next) {
     const { requestId } = req.params;
     const { status, note = '' } = req.body || {};
 
-    const allowedStatuses = ['approved', 'paid', 'rejected'];
+    const allowedStatuses = ['paid', 'rejected'];
     if (!allowedStatuses.includes(String(status))) {
       return res.status(400).json({ message: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` });
     }
@@ -547,12 +547,12 @@ async function updatePayoutRequestStatus(req, res, next) {
     const payoutRequest = await PayoutRequest.findById(requestId);
     if (!payoutRequest) return res.status(404).json({ message: 'Payout request not found' });
 
-    if (['paid', 'rejected', 'cancelled'].includes(payoutRequest.status) && payoutRequest.status !== status) {
+    if (['paid', 'rejected'].includes(payoutRequest.status)) {
       return res.status(409).json({ message: `Cannot change status from ${payoutRequest.status}` });
     }
 
-    if (status === 'paid' && !['pending', 'approved', 'paid'].includes(payoutRequest.status)) {
-      return res.status(409).json({ message: `Cannot mark ${payoutRequest.status} request as paid` });
+    if (payoutRequest.status !== 'pending') {
+      return res.status(409).json({ message: `Cannot mark ${payoutRequest.status} request as ${status}` });
     }
 
     payoutRequest.status = status;

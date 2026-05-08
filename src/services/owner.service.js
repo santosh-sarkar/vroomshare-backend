@@ -143,7 +143,7 @@ async function getReservedPayoutAmount(ownerObjectId) {
     {
       $match: {
         owner: ownerObjectId,
-        status: { $in: ['pending', 'approved'] },
+        status: 'pending',
       },
     },
     {
