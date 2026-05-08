@@ -254,7 +254,7 @@ async function ownerBookings(req, res, next) {
     if (!ownerId)
       return res.status(401).json({ message: "Authentication required" });
 
-    const { status, period = 'all' } = req.query;
+    const { status, period = 'all', page = 1, limit = 10 } = req.query;
     const query = { owner: ownerId };
 
     if (status && status !== 'all') {
@@ -292,20 +292,29 @@ async function ownerBookings(req, res, next) {
       }
     }
 
-    const bookings = await Booking.find(query)
-      .populate({
-        path: "vehicle",
-        select: "model brand registrationNumber photos",
-      })
-      .populate({
-        path: "renter",
-        select: "name image email",
-      })
-      .sort({ createdAt: -1 });
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.max(1, Number(limit));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [bookings, total] = await Promise.all([
+      Booking.find(query)
+        .populate({
+          path: "vehicle",
+          select: "model brand registrationNumber photos",
+        })
+        .populate({
+          path: "renter",
+          select: "name image email",
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Booking.countDocuments(query),
+    ]);
 
     await attachExistingDisputes(bookings);
 
-    res.json({ ok: true, total: bookings.length, bookings });
+    res.json({ ok: true, total, page: pageNum, limit: limitNum, bookings });
   } catch (e) {
     next(e);
   }
