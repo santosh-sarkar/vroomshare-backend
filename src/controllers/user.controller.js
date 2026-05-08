@@ -122,29 +122,27 @@ async function updateProfile(req, res, next) {
 
     // Role-specific mapping
     if (role === "owner") {
-      const images = {};
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
       const profileUrl = pickUrl(selfieWithId);
-      if (cFrontUrl) images.citizenshipFront = cFrontUrl;
-      if (cBackUrl) images.citizenshipBack = cBackUrl;
-      if (profileUrl) { images.profile = profileUrl; images.selfieWithId = profileUrl; }
-      if (Object.keys(images).length) updateData.image = images;
+      if (cFrontUrl) updateData['image.citizenshipFront'] = cFrontUrl;
+      if (cBackUrl) updateData['image.citizenshipBack'] = cBackUrl;
+      if (profileUrl) {
+        updateData['image.selfieWithId'] = profileUrl;
+      }
     } else if (role === "renter") {
       if (citizenshipNo)
         updateData.citizenshipNo = String(citizenshipNo).trim();
       if (licenseNumber)
         updateData.licenseNumber = String(licenseNumber).trim();
-      const images = {};
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
       const licenseUrl = pickUrl(licensePhoto);
       const selfieWithIdUrl = pickUrl(selfieWithId);
-      if (cFrontUrl) images.citizenshipFrontPhoto = cFrontUrl;
-      if (cBackUrl) images.citizenshipBackPhoto = cBackUrl;
-      if (licenseUrl) images.licensePhoto = licenseUrl;
-      if (selfieWithIdUrl) images.selfieWithId = selfieWithIdUrl;
-      if (Object.keys(images).length) updateData.image = images;
+      if (cFrontUrl) updateData['image.citizenshipFrontPhoto'] = cFrontUrl;
+      if (cBackUrl) updateData['image.citizenshipBackPhoto'] = cBackUrl;
+      if (licenseUrl) updateData['image.licensePhoto'] = licenseUrl;
+      if (selfieWithIdUrl) updateData['image.selfieWithId'] = selfieWithIdUrl;
     }
 
     if (Object.keys(updateData).length === 0) {
