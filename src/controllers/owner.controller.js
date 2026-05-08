@@ -1,9 +1,13 @@
 const ownerService = require('../services/owner.service');
 const Booking = require('../models/booking.model');
 
+function getOwnerId(req) {
+  return req.user && (req.user._id || req.user.sub);
+}
+
 async function earnings(req, res, next) {
   try {
-    const ownerId = req.user && (req.user._id || req.user.sub);
+    const ownerId = getOwnerId(req);
     if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
 
     const data = await ownerService.getEarnings(ownerId);
@@ -15,7 +19,7 @@ async function earnings(req, res, next) {
 
 async function bookings(req, res, next) {
   try {
-    const ownerId = req.user && (req.user._id || req.user.sub);
+    const ownerId = getOwnerId(req);
     if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
 
     const { page = 1, limit = 20, status } = req.query;
@@ -39,4 +43,48 @@ async function bookings(req, res, next) {
   }
 }
 
-module.exports = { earnings, bookings };
+async function payoutSettings(req, res, next) {
+  try {
+    const ownerId = getOwnerId(req);
+    if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
+
+    const data = await ownerService.getPayoutSettings(ownerId);
+    res.json({ ok: true, ...data });
+  } catch (e) {
+    next(e);
+  }
+}
+
+async function updatePayoutSettings(req, res, next) {
+  try {
+    const ownerId = getOwnerId(req);
+    if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
+
+    const payoutSettingsData = await ownerService.savePayoutSettings(ownerId, req.body || {});
+    res.json({ ok: true, payoutSettings: payoutSettingsData, message: 'Payout settings saved' });
+  } catch (e) {
+    if (e.statusCode) return res.status(e.statusCode).json({ ok: false, message: e.message });
+    next(e);
+  }
+}
+
+async function requestPayout(req, res, next) {
+  try {
+    const ownerId = getOwnerId(req);
+    if (!ownerId) return res.status(401).json({ message: 'Authentication required' });
+
+    const data = await ownerService.requestPayout(ownerId, req.body || {});
+    res.status(201).json({ ok: true, ...data, message: 'Payout request submitted' });
+  } catch (e) {
+    if (e.statusCode) return res.status(e.statusCode).json({ ok: false, message: e.message });
+    next(e);
+  }
+}
+
+module.exports = {
+  earnings,
+  bookings,
+  payoutSettings,
+  updatePayoutSettings,
+  requestPayout,
+};

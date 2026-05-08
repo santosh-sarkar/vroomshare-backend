@@ -30,6 +30,10 @@ const UserSchema = new mongoose.Schema(
       wardNo:       { type: String },
     },
     phone:                        { type: String },
+    payoutSettings: {
+      esewaId: { type: String, default: '' },
+      accountName: { type: String, default: '' },
+    },
     isEmailVerified:              { type: Boolean, default: false },
     acceptedTerms:                { type: Boolean, default: false },
     acceptedTermsAt:              { type: Date },

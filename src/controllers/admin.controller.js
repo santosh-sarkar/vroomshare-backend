@@ -2,12 +2,15 @@ const User = require('../models/users/user.model');
 const Vehicle = require('../models/vehicle.model');
 const Booking = require('../models/booking.model');
 const Dispute = require('../models/dispute.model');
+const PayoutRequest = require('../models/payoutRequest.model');
+const mongoose = require('mongoose');
 const {
   sendKycReviewEmail,
   sendVehicleReviewEmail,
   sendDisputeNotificationEmail,
 } = require('../services/email.service');
 
+const PLATFORM_FEE_RATE = 0.15;
 const DISPUTE_STATUSES = ['open', 'in_review', 'escalated', 'resolved', 'rejected'];
 const ACTIVE_DISPUTE_STATUSES = ['open', 'in_review', 'escalated'];
 const CLOSED_DISPUTE_STATUSES = ['resolved', 'rejected'];
@@ -111,12 +114,36 @@ function parseIncidentAt(incidentAt) {
   return Number.isNaN(parsed.valueOf()) ? null : parsed;
 }
 
+function getUserVerificationStatus(user) {
+  return user?.isVerified ? 'verified' : 'pending';
+}
+
 async function stats(req, res, next) {
   try {
-    const users = await User.countDocuments();
-    const vehicles = await Vehicle.countDocuments();
-    const bookings = await Booking.countDocuments();
-    res.json({ ok: true, stats: { users, vehicles, bookings } });
+    const [users, vehicles, bookings, paidBookingTotals] = await Promise.all([
+      User.countDocuments(),
+      Vehicle.countDocuments(),
+      Booking.countDocuments(),
+      Booking.aggregate([
+        { $match: { 'payment.status': 'paid' } },
+        { $group: { _id: null, grossAmount: { $sum: '$totalPrice' } } },
+      ]),
+    ]);
+
+    const grossPaidAmount = paidBookingTotals?.[0]?.grossAmount || 0;
+    const platformEarnings = Math.round(grossPaidAmount * PLATFORM_FEE_RATE);
+    const totalCashCollection = Math.round(grossPaidAmount);
+
+    res.json({
+      ok: true,
+      stats: {
+        users,
+        vehicles,
+        bookings,
+        platformEarnings,
+        totalCashCollection,
+      },
+    });
   } catch (e) {
     next(e);
   }
@@ -153,8 +180,14 @@ async function verifyUser(req, res, next) {
 // Get all pending users (owner/renter) awaiting verification
 async function getPendingUsers(req, res, next) {
   try {
-    const { page = 1, limit = 20, search = '' } = req.query;
+    const { page = 1, limit = 20, search = '', status = 'pending' } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
+    const normalizedStatus = String(status).toLowerCase();
+    const allowedStatuses = ['all', 'pending', 'verified'];
+
+    if (!allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({ message: 'Invalid status filter' });
+    }
 
     const hasAnyKycSubmission = {
       $or: [
@@ -172,21 +205,38 @@ async function getPendingUsers(req, res, next) {
       ],
     };
 
-    const filter = {
-      role: { $in: ['owner', 'renter'] },
-      isVerified: false,
-      ...hasAnyKycSubmission,
-    };
+    const baseConditions = [
+      { role: { $in: ['owner', 'renter'] } },
+      hasAnyKycSubmission,
+    ];
+
+    const andConditions = [...baseConditions];
+
+    if (normalizedStatus === 'pending') {
+      andConditions.push({ isVerified: false });
+    } else if (normalizedStatus === 'verified') {
+      andConditions.push({ isVerified: true });
+    }
 
     if (search && search.trim()) {
       const keyword = search.trim();
-      filter.$or = [
+      andConditions.push({
+        $or: [
         { name: { $regex: keyword, $options: 'i' } },
         { email: { $regex: keyword, $options: 'i' } },
-      ];
+        ],
+      });
     }
 
-    const [users, total] = await Promise.all([
+    const filter = { $and: andConditions };
+
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+    const [users, total, pendingTotal, verifiedToday] = await Promise.all([
       User.find(filter)
         .select('name email role phone createdAt isVerified image citizenshipNo licenseNumber kycData')
         .sort({ createdAt: -1 })
@@ -194,9 +244,33 @@ async function getPendingUsers(req, res, next) {
         .limit(Number(limit))
         .lean(),
       User.countDocuments(filter),
+      User.countDocuments({ $and: [...baseConditions, { isVerified: false }] }),
+      User.countDocuments({
+        $and: [
+          ...baseConditions,
+          { isVerified: true },
+          { updatedAt: { $gte: startOfToday, $lt: startOfTomorrow } },
+        ],
+      }),
     ]);
 
-    res.json({ ok: true, total, page: Number(page), limit: Number(limit), users });
+    const usersWithStatus = users.map((u) => ({
+      ...u,
+      verificationStatus: getUserVerificationStatus(u),
+    }));
+
+    res.json({
+      ok: true,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      status: normalizedStatus,
+      summary: {
+        pendingTotal,
+        verifiedToday,
+      },
+      users: usersWithStatus,
+    });
   } catch (e) { next(e); }
 }
 
@@ -232,6 +306,261 @@ async function getPendingVehicles(req, res, next) {
     ]);
 
     res.json({ ok: true, total, page: Number(page), limit: Number(limit), vehicles });
+  } catch (e) { next(e); }
+}
+
+// Get owner earnings summary table for admin dashboard
+async function getOwnerEarningsSummary(req, res, next) {
+  try {
+    const { page = 1, limit = 10, search = '' } = req.query;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+    const skip = (safePage - 1) * safeLimit;
+
+    const ownerFilter = { role: 'owner' };
+    if (search && search.trim()) {
+      const keyword = search.trim();
+      ownerFilter.$or = [
+        { name: { $regex: keyword, $options: 'i' } },
+        { email: { $regex: keyword, $options: 'i' } },
+      ];
+    }
+
+    const [owners, total] = await Promise.all([
+      User.find(ownerFilter)
+        .select('name email image isVerified createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      User.countDocuments(ownerFilter),
+    ]);
+
+    if (!owners.length) {
+      return res.json({ ok: true, total, page: safePage, limit: safeLimit, owners: [] });
+    }
+
+    const ownerIds = owners.map((owner) => owner._id);
+
+    const [vehicleAgg, bookingAgg] = await Promise.all([
+      Vehicle.aggregate([
+        { $match: { owner: { $in: ownerIds } } },
+        { $group: { _id: '$owner', vehicles: { $sum: 1 } } },
+      ]),
+      Booking.aggregate([
+        {
+          $match: {
+            owner: { $in: ownerIds },
+            status: 'completed',
+            'payment.status': 'paid',
+          },
+        },
+        {
+          $group: {
+            _id: '$owner',
+            totalBookings: { $sum: 1 },
+            grossEarnings: { $sum: '$totalPrice' },
+          },
+        },
+      ]),
+    ]);
+
+    const vehicleMap = new Map(vehicleAgg.map((row) => [String(row._id), row.vehicles || 0]));
+    const bookingMap = new Map(bookingAgg.map((row) => [String(row._id), row]));
+
+    const rows = owners.map((owner) => {
+      const ownerId = String(owner._id);
+      const vehicleCount = vehicleMap.get(ownerId) || 0;
+      const bookingStats = bookingMap.get(ownerId) || { totalBookings: 0, grossEarnings: 0 };
+      const grossEarnings = Number(bookingStats.grossEarnings || 0);
+      const totalEarnings = grossEarnings * (1 - PLATFORM_FEE_RATE);
+
+      return {
+        _id: owner._id,
+        name: owner.name,
+        email: owner.email,
+        avatar: owner?.image?.profile || null,
+        isVerified: Boolean(owner.isVerified),
+        vehicles: vehicleCount,
+        totalBookings: Number(bookingStats.totalBookings || 0),
+        totalEarnings,
+        grossEarnings,
+      };
+    });
+
+    res.json({ ok: true, total, page: safePage, limit: safeLimit, owners: rows });
+  } catch (e) { next(e); }
+}
+
+// Get all bookings and earnings details for a specific owner
+async function getOwnerEarningsDetails(req, res, next) {
+  try {
+    const { ownerId } = req.params;
+    const { page = 1, limit = 10, status = 'all' } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(ownerId)) {
+      return res.status(400).json({ message: 'Invalid owner id' });
+    }
+
+    const owner = await User.findOne({ _id: ownerId, role: 'owner' })
+      .select('name email image isVerified')
+      .lean();
+
+    if (!owner) {
+      return res.status(404).json({ message: 'Owner not found' });
+    }
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+    const skip = (safePage - 1) * safeLimit;
+
+    const bookingFilter = { owner: ownerId };
+    if (status && status !== 'all') {
+      bookingFilter.status = status;
+    }
+
+    const ownerObjectId = new mongoose.Types.ObjectId(ownerId);
+
+    const [bookings, total, vehicles, totalsAgg, reservedAgg, paidWithdrawalAgg, pendingPayoutRequests] = await Promise.all([
+      Booking.find(bookingFilter)
+        .populate('vehicle', 'brand model year registrationNumber photos')
+        .populate('renter', 'name email phone image')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      Booking.countDocuments(bookingFilter),
+      Vehicle.countDocuments({ owner: ownerId }),
+      Booking.aggregate([
+        {
+          $match: {
+            owner: ownerObjectId,
+            status: 'completed',
+            'payment.status': 'paid',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalBookings: { $sum: 1 },
+            grossEarnings: { $sum: '$totalPrice' },
+          },
+        },
+      ]),
+      PayoutRequest.aggregate([
+        {
+          $match: {
+            owner: ownerObjectId,
+            status: { $in: ['pending', 'approved', 'paid'] },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalReserved: { $sum: '$amount' },
+          },
+        },
+      ]),
+      PayoutRequest.aggregate([
+        {
+          $match: {
+            owner: ownerObjectId,
+            status: 'paid',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalWithdrawal: { $sum: '$amount' },
+          },
+        },
+      ]),
+      PayoutRequest.find({ owner: ownerObjectId, status: { $in: ['pending', 'approved'] } })
+        .select('amount status paymentMethod payoutDetails createdAt updatedAt note')
+        .sort({ createdAt: -1 })
+        .lean(),
+    ]);
+
+    const totals = totalsAgg[0] || { totalBookings: 0, grossEarnings: 0 };
+    const grossEarnings = Number(totals.grossEarnings || 0);
+    const totalEarnings = grossEarnings * (1 - PLATFORM_FEE_RATE);
+    const reservedAmount = Number(reservedAgg[0]?.totalReserved || 0);
+    const totalWithdrawal = Number(paidWithdrawalAgg[0]?.totalWithdrawal || 0);
+    const availableBalance = Math.max(totalEarnings - reservedAmount, 0);
+
+    const rows = bookings.map((booking) => ({
+      _id: booking._id,
+      status: booking.status,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      createdAt: booking.createdAt,
+      totalPrice: booking.totalPrice,
+      paymentStatus: booking?.payment?.status || 'pending',
+      paidAt: booking?.payment?.paidAt || null,
+      vehicle: {
+        _id: booking?.vehicle?._id,
+        title: [booking?.vehicle?.brand, booking?.vehicle?.model, booking?.vehicle?.year].filter(Boolean).join(' '),
+        registrationNumber: booking?.vehicle?.registrationNumber || null,
+        image: booking?.vehicle?.photos?.[0] || null,
+      },
+      renter: {
+        _id: booking?.renter?._id,
+        name: booking?.renter?.name || 'Unknown',
+        email: booking?.renter?.email || null,
+      },
+    }));
+
+    res.json({
+      ok: true,
+      page: safePage,
+      limit: safeLimit,
+      total,
+      owner: {
+        _id: owner._id,
+        name: owner.name,
+        email: owner.email,
+        avatar: owner?.image?.profile || null,
+        isVerified: Boolean(owner.isVerified),
+        vehicles,
+        totalBookings: Number(totals.totalBookings || 0),
+        totalEarnings,
+        grossEarnings,
+        totalWithdrawal,
+        availableBalance,
+      },
+      pendingPayoutRequests,
+      bookings: rows,
+    });
+  } catch (e) { next(e); }
+}
+
+async function updatePayoutRequestStatus(req, res, next) {
+  try {
+    const { requestId } = req.params;
+    const { status, note = '' } = req.body || {};
+
+    const allowedStatuses = ['approved', 'paid', 'rejected'];
+    if (!allowedStatuses.includes(String(status))) {
+      return res.status(400).json({ message: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` });
+    }
+
+    const payoutRequest = await PayoutRequest.findById(requestId);
+    if (!payoutRequest) return res.status(404).json({ message: 'Payout request not found' });
+
+    if (['paid', 'rejected', 'cancelled'].includes(payoutRequest.status) && payoutRequest.status !== status) {
+      return res.status(409).json({ message: `Cannot change status from ${payoutRequest.status}` });
+    }
+
+    if (status === 'paid' && !['pending', 'approved', 'paid'].includes(payoutRequest.status)) {
+      return res.status(409).json({ message: `Cannot mark ${payoutRequest.status} request as paid` });
+    }
+
+    payoutRequest.status = status;
+    payoutRequest.note = String(note || '').trim();
+    payoutRequest.processedAt = ['paid', 'rejected'].includes(status) ? new Date() : payoutRequest.processedAt;
+    await payoutRequest.save();
+
+    res.json({ ok: true, payoutRequest, message: 'Payout request updated successfully' });
   } catch (e) { next(e); }
 }
 
@@ -686,6 +1015,9 @@ module.exports = {
   verifyVehicle,
   rejectVehicle,
   getPendingVehicles,
+  getOwnerEarningsSummary,
+  getOwnerEarningsDetails,
+  updatePayoutRequestStatus,
   createDispute,
   getDisputes,
   getDisputeStats,
