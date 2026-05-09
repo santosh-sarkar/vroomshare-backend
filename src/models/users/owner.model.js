@@ -3,6 +3,7 @@ const User = require("./user.model");
 
 // kycData is defined once on the base User schema — no need to repeat it here
 const ownerSchema = new mongoose.Schema({
+  citizenshipNo: { type: String },
   image: {
     citizenshipFront: { type: String },
     citizenshipBack:  { type: String },

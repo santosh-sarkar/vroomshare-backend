@@ -122,6 +122,8 @@ async function updateProfile(req, res, next) {
 
     // Role-specific mapping
     if (role === "owner") {
+      if (citizenshipNo)
+        updateData.citizenshipNo = String(citizenshipNo).trim();
       const cFrontUrl = pickUrl(citizenshipFront);
       const cBackUrl = pickUrl(citizenshipBack);
       const profileUrl = pickUrl(selfieWithId);
