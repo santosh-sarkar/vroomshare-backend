@@ -21,10 +21,16 @@ const BookingSchema = new mongoose.Schema(
     endDate: { type: Date, required: true },
     completedAt: { type: Date, default: null },
     approvedAt: { type: Date, default: null },
+    preStartPhotos: [
+      {
+        url: { type: String, required: true },
+        public_id: { type: String },
+      },
+    ],
     totalPrice: { type: Number, required: true },
     status: {
       type: String,
-      enum: ["requested", "approved", "confirmed","ongoing", "cancelled", "completed"],
+      enum: ["requested", "approved", "confirmed", "initiate_ongoing", "ongoing", "cancelled", "completed"],
       default: "requested",
     },
     payment: {

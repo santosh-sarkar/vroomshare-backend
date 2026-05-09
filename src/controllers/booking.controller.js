@@ -340,7 +340,8 @@ async function update(req, res, next) {
     const allowedTransitions = {
       requested: ["approve", "cancel"],
       approved: [],
-      confirmed: ["ongoing"],
+      confirmed: ["initiate_ongoing"],
+      initiate_ongoing: [],
       ongoing: ["complete"],
       completed: [],
       cancelled: [],
@@ -371,8 +372,8 @@ async function update(req, res, next) {
         },
       });
       
-    } else if (action === "ongoing") {
-      booking.status = "ongoing";
+    } else if (action === "initiate_ongoing") {
+      booking.status = "initiate_ongoing";
       booking.completedAt = null;
     } else if (action === "complete") {
       booking.status = "completed";
@@ -488,4 +489,45 @@ async function cancelByRenter(req, res, next) {
   }
 }
 
-module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus, cancelByRenter };
+// Renter starts the trip — uploads 3-5 pre-start photos, transitions initiate_ongoing → ongoing
+async function startTrip(req, res, next) {
+  try {
+    const renterId = req.user && (req.user._id || req.user.sub);
+    if (!renterId) return res.status(401).json({ ok: false, message: "Authentication required" });
+
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ ok: false, message: "Booking not found" });
+
+    if (booking.renter.toString() !== renterId.toString()) {
+      return res.status(403).json({ ok: false, message: "Not authorized" });
+    }
+
+    if (booking.status !== "initiate_ongoing") {
+      return res.status(400).json({
+        ok: false,
+        message: `Cannot start trip — booking status is "${booking.status}". Owner must initiate first.`,
+      });
+    }
+
+    const files = req.files || [];
+    if (files.length < 3) {
+      return res.status(400).json({ ok: false, message: "At least 3 pre-start photos are required." });
+    }
+    if (files.length > 5) {
+      return res.status(400).json({ ok: false, message: "Maximum 5 pre-start photos allowed." });
+    }
+
+    booking.preStartPhotos = files.map((f) => ({
+      url: f.path,
+      public_id: f.filename,
+    }));
+    booking.status = "ongoing";
+    await booking.save();
+
+    res.json({ ok: true, message: "Trip started", status: booking.status, preStartPhotos: booking.preStartPhotos });
+  } catch (e) {
+    next(e);
+  }
+}
+
+module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus, cancelByRenter, startTrip };
