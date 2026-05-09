@@ -66,6 +66,16 @@ const EMAIL_CONFIGS = {
 		title: 'Dispute Update',
 		heading: 'Your dispute has a new update',
 	},
+	booking_auto_cancelled: {
+		subject: 'Booking Auto-Cancelled - Payment Not Received - VroomShare',
+		title: 'Booking Cancelled',
+		heading: 'Your booking has been cancelled',
+	},
+	booking_request_expired: {
+		subject: 'Booking Request Expired - VroomShare',
+		title: 'Booking Request Expired',
+		heading: 'Your booking request has expired',
+	},
 };
 
 function escapeHtml(value) {
@@ -566,6 +576,48 @@ async function sendDisputeNotificationEmail(email, { userName, status, reason, r
 	return sendRenderedEmail(email, config.subject, html, 'sendDisputeNotificationEmail');
 }
 
+async function sendBookingRequestExpiredEmail(email, { renterName, vehicleName, startDate, endDate, totalPrice, bookingId }) {
+	const config = EMAIL_CONFIGS.booking_request_expired;
+	const html = buildStatusNotificationHtml({
+		title: config.title,
+		heading: config.heading,
+		userName: renterName,
+		message: 'Your booking request was automatically cancelled because the owner did not respond within 2 hours.',
+		details: [
+			{ label: 'Booking ID', value: bookingId },
+			{ label: 'Vehicle', value: vehicleName },
+			{ label: 'Pickup Date', value: formatBookingDate(startDate) },
+			{ label: 'Return Date', value: formatBookingDate(endDate) },
+			{ label: 'Total Price', value: formatCurrency(totalPrice) },
+		],
+		reason: 'The owner did not approve or reject your request within the 2-hour response window.',
+		nextSteps: 'You can search for other available vehicles and place a new booking request.',
+		noticeTone: 'warning',
+	});
+	return sendRenderedEmail(email, config.subject, html, 'sendBookingRequestExpiredEmail');
+}
+
+async function sendBookingAutoCancelledEmail(email, { renterName, vehicleName, startDate, endDate, totalPrice, bookingId }) {
+	const config = EMAIL_CONFIGS.booking_auto_cancelled;
+	const html = buildStatusNotificationHtml({
+		title: config.title,
+		heading: config.heading,
+		userName: renterName,
+		message: 'Your approved booking was automatically cancelled because payment was not completed within 2 hours of approval.',
+		details: [
+			{ label: 'Booking ID', value: bookingId },
+			{ label: 'Vehicle', value: vehicleName },
+			{ label: 'Pickup Date', value: formatBookingDate(startDate) },
+			{ label: 'Return Date', value: formatBookingDate(endDate) },
+			{ label: 'Total Price', value: formatCurrency(totalPrice) },
+		],
+		reason: 'Payment was not received within the 2-hour window after your booking was approved.',
+		nextSteps: 'You can search for available vehicles and place a new booking request at any time.',
+		noticeTone: 'warning',
+	});
+	return sendRenderedEmail(email, config.subject, html, 'sendBookingAutoCancelledEmail');
+}
+
 module.exports = {
 	sendVerificationEmail,
 	sendPasswordResetEmail,
@@ -575,5 +627,7 @@ module.exports = {
 	sendKycReviewEmail,
 	sendVehicleReviewEmail,
 	sendDisputeNotificationEmail,
+	sendBookingAutoCancelledEmail,
+	sendBookingRequestExpiredEmail,
 };
 

@@ -357,6 +357,7 @@ async function update(req, res, next) {
 
     if (action === "approve") {
       booking.status = "approved";
+      booking.approvedAt = new Date();
       booking.completedAt = null;
     } else if (action === "cancel") {
       booking.status = "cancelled";

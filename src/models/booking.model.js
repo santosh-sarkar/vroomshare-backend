@@ -20,6 +20,7 @@ const BookingSchema = new mongoose.Schema(
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
     completedAt: { type: Date, default: null },
+    approvedAt: { type: Date, default: null },
     totalPrice: { type: Number, required: true },
     status: {
       type: String,
