@@ -19,8 +19,15 @@ async function create(req, res, next) {
 
     if (booking.status !== 'completed') return res.status(400).json({ message: 'Review allowed only after booking is completed' });
 
-    const existing = await Review.findOne({ booking: bookingId });
-    if (existing) return res.status(400).json({ message: 'Review already submitted for this booking' });
+    // One review per vehicle per renter — if already exists, update it instead
+    const existing = await Review.findOne({ vehicleId, renterId });
+    if (existing) {
+      existing.rating = rating;
+      existing.comment = comment ?? existing.comment;
+      existing.booking = bookingId;
+      await existing.save();
+      return res.status(200).json({ ok: true, review: existing });
+    }
 
     const review = await Review.create({ vehicleId, booking: bookingId, renterId, rating, comment });
     res.status(201).json({ ok: true, review });
@@ -42,4 +49,29 @@ async function getByVehicle(req, res, next) {
   }
 }
 
-module.exports = { create, getByVehicle };
+// Update a review (renter, own review only)
+async function update(req, res, next) {
+  try {
+    const renterId = req.user && (req.user._id || req.user.sub);
+    const { reviewId } = req.params;
+    const { rating, comment } = req.body;
+
+    if (!rating) return res.status(400).json({ message: 'rating is required' });
+
+    const review = await Review.findById(reviewId);
+    if (!review) return res.status(404).json({ message: 'Review not found' });
+    if (review.renterId.toString() !== renterId.toString()) {
+      return res.status(403).json({ message: 'Not authorized to update this review' });
+    }
+
+    review.rating = rating;
+    review.comment = comment ?? review.comment;
+    await review.save();
+
+    res.json({ ok: true, review });
+  } catch (e) {
+    next(e);
+  }
+}
+
+module.exports = { create, getByVehicle, update };

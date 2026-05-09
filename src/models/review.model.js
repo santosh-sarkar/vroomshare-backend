@@ -9,5 +9,6 @@ const ReviewSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 ReviewSchema.index({ vehicleId: 1 });
+ReviewSchema.index({ vehicleId: 1, renterId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Review', ReviewSchema);

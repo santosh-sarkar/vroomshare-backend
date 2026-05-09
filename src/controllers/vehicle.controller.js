@@ -77,12 +77,45 @@ async function list(req, res, next) {
       Vehicle.countDocuments(query),
     ]);
 
+    // Attach aggregated rating & review count to each vehicle
+    const vehicleIds = vehicles.map((v) => v._id);
+    let ratingMap = {};
+    if (vehicleIds.length > 0) {
+      const ratingAgg = await Review.aggregate([
+        { $match: { vehicleId: { $in: vehicleIds } } },
+        {
+          $group: {
+            _id: "$vehicleId",
+            averageRating: { $avg: "$rating" },
+            reviewCount: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            averageRating: { $round: ["$averageRating", 1] },
+            reviewCount: 1,
+          },
+        },
+      ]);
+      ratingMap = ratingAgg.reduce((map, r) => {
+        map[r._id.toString()] = r;
+        return map;
+      }, {});
+    }
+    const vehiclesWithRatings = vehicles.map((v) => {
+      const obj = v.toObject();
+      const agg = ratingMap[obj._id.toString()];
+      obj.averageRating = agg ? agg.averageRating : 0;
+      obj.reviewCount = agg ? agg.reviewCount : 0;
+      return obj;
+    });
+
     res.json({
       ok: true,
       total,
       page: Number(page),
       limit: Number(limit),
-      vehicles,
+      vehicles: vehiclesWithRatings,
     });
   } catch (e) {
     next(e);
@@ -106,6 +139,7 @@ async function create(req, res, next) {
         .status(403)
         .json({ ok: false, message: "KYC verification required before listing a vehicle." });
 
+      
     // Extract fields from FormData
     let {
       vehicleType,

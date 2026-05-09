@@ -6,6 +6,9 @@ const { authenticateToken, authorizeRole } = require('../middlewares/auth.middle
 // Add review (renter only, after completed booking)
 router.post('/', authenticateToken, authorizeRole('renter'), controller.create);
 
+// Update review (renter only, own review)
+router.put('/:reviewId', authenticateToken, authorizeRole('renter'), controller.update);
+
 // Get reviews for a vehicle (public)
 router.get('/:vehicleId', controller.getByVehicle);
 
