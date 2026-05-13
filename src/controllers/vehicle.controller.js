@@ -2,6 +2,8 @@ const Vehicle = require("../models/vehicle.model");
 const Review = require("../models/review.model");
 const Owner = require("../models/users/owner.model");
 const mongoose = require("mongoose");
+// Document slots expected from frontend (order-sensitive when files are uploaded)
+const DOC_KEYS = ["bluebook", "insurance"];
 
 async function list(req, res, next) {
   try {
@@ -21,6 +23,7 @@ async function list(req, res, next) {
 
     const query = {
       status: { $nin: ["pending", "archived", "suspended"] },
+      isVerified: true,
     };
     if (ownerId) query.ownerId = ownerId;
     if (vehicleType) query.vehicleType = vehicleType;
@@ -240,9 +243,16 @@ async function create(req, res, next) {
         : req.files.documentImages
           ? [req.files.documentImages]
           : [];
-      documentImages.forEach((file) => {
-        if (file.path)
-          documents.push({ type: "other", url: file.path, verified: false });
+      // Document types may be inferred from an optional `documentTypes` field
+      // or by upload order (frontend appends files in DOC_KEYS order).
+      let documentTypes = [];
+      if (req.body.documentTypes) {
+        try { documentTypes = JSON.parse(req.body.documentTypes); } catch (_) { documentTypes = []; }
+      }
+      documentImages.forEach((file, idx) => {
+        if (!file.path) return;
+        const inferred = documentTypes[idx] || DOC_KEYS[idx] || "other";
+        documents.push({ type: inferred, url: file.path, verified: false });
       });
     }
 
@@ -429,10 +439,49 @@ async function update(req, res, next) {
         }
       }
       if (req.files.documentImages && req.files.documentImages.length > 0) {
-        req.files.documentImages.forEach((f) => {
+        // Rebuild documents using a provided `existingDocuments` slot map when available.
+        const newUrls = req.files.documentImages.map((f) => f.path || f.secure_url);
+        if (req.body.existingDocuments) {
+          try {
+            const slotMap = JSON.parse(req.body.existingDocuments); // [url|null, ...]
+            let uploadIdx = 0;
+            const rebuilt = [];
+            for (let i = 0; i < slotMap.length; i++) {
+              const existing = slotMap[i];
+              const docType = DOC_KEYS[i] || "other";
+              if (existing === null) {
+                const url = newUrls[uploadIdx++];
+                if (url) rebuilt.push({ type: docType, url, verified: false });
+              } else {
+                const found = (vehicle.documents || []).find((d) => d.url === existing);
+                if (found) rebuilt.push(found);
+                else rebuilt.push({ type: docType, url: existing, verified: false });
+              }
+            }
+            // append any overflow uploads
+            while (uploadIdx < newUrls.length) {
+              const type = DOC_KEYS[rebuilt.length] || "other";
+              rebuilt.push({ type, url: newUrls[uploadIdx++], verified: false });
+            }
+            vehicle.documents = rebuilt;
+          } catch (_) {
+            // Fallback: append new files using DOC_KEYS order
+            if (!Array.isArray(vehicle.documents)) vehicle.documents = [];
+            const startIdx = vehicle.documents.length;
+            newUrls.forEach((url, i) => {
+              const type = DOC_KEYS[startIdx + i] || "other";
+              vehicle.documents.push({ type, url, verified: false });
+            });
+          }
+        } else {
+          // No slot map provided — append new uploads and infer types by order
           if (!Array.isArray(vehicle.documents)) vehicle.documents = [];
-          vehicle.documents.push({ url: f.path || f.secure_url, verified: false });
-        });
+          const startIdx = vehicle.documents.length;
+          newUrls.forEach((url, i) => {
+            const type = DOC_KEYS[startIdx + i] || "other";
+            vehicle.documents.push({ type, url, verified: false });
+          });
+        }
       }
     }
 
