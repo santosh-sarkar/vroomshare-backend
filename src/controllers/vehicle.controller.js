@@ -140,9 +140,11 @@ async function create(req, res, next) {
     if (!ownerDoc?.isVerified)
       return res
         .status(403)
-        .json({ ok: false, message: "KYC verification required before listing a vehicle." });
+        .json({
+          ok: false,
+          message: "KYC verification required before listing a vehicle.",
+        });
 
-      
     // Extract fields from FormData
     let {
       vehicleType,
@@ -211,8 +213,13 @@ async function create(req, res, next) {
         ok: false,
         message: `Invalid fuel type. Allowed: ${allowedFuelTypes.join(", ")}`,
       });
-    const allowedTransmissions = ['manual', 'automatic', 'semi-automatic'];
-    if (transmission && !allowedTransmissions.includes(transmission.toString().trim().toLowerCase()))
+    const allowedTransmissions = ["manual", "automatic", "semi-automatic"];
+    if (
+      transmission &&
+      !allowedTransmissions.includes(
+        transmission.toString().trim().toLowerCase(),
+      )
+    )
       return res.status(400).json({
         ok: false,
         message: `Invalid transmission. Allowed: ${allowedTransmissions.join(", ")}`,
@@ -247,7 +254,11 @@ async function create(req, res, next) {
       // or by upload order (frontend appends files in DOC_KEYS order).
       let documentTypes = [];
       if (req.body.documentTypes) {
-        try { documentTypes = JSON.parse(req.body.documentTypes); } catch (_) { documentTypes = []; }
+        try {
+          documentTypes = JSON.parse(req.body.documentTypes);
+        } catch (_) {
+          documentTypes = [];
+        }
       }
       documentImages.forEach((file, idx) => {
         if (!file.path) return;
@@ -267,7 +278,9 @@ async function create(req, res, next) {
       registrationNumber,
       fuelType: normalizedFuelType,
       weight: weightKg,
-      transmission: transmission ? transmission.toString().trim().toLowerCase() : undefined,
+      transmission: transmission
+        ? transmission.toString().trim().toLowerCase()
+        : undefined,
       description,
       features: features || [],
       pickup: {
@@ -317,12 +330,32 @@ async function get(req, res, next) {
 async function update(req, res, next) {
   try {
     const allowed = [
-      "title", "description", "vehicleType", "type", "location",
-      "pricePerDay", "pricing", "images", "availability", "isVerified",
-      "brand", "model", "modelName", "year", "yearOfManufacture",
-      "engineCc", "engineCapacity", "registrationNumber", "fuelType",
-      "weight", "transmission", "features", "documents", "status",
-      "dailyRate", "pickupLocation",
+      "title",
+      "description",
+      "vehicleType",
+      "type",
+      "location",
+      "pricePerDay",
+      "pricing",
+      "images",
+      "availability",
+      "isVerified",
+      "brand",
+      "model",
+      "modelName",
+      "year",
+      "yearOfManufacture",
+      "engineCc",
+      "engineCapacity",
+      "registrationNumber",
+      "fuelType",
+      "weight",
+      "transmission",
+      "features",
+      "documents",
+      "status",
+      "dailyRate",
+      "pickupLocation",
     ];
     const patch = {};
     for (const key of allowed) {
@@ -332,11 +365,20 @@ async function update(req, res, next) {
 
     // ── field name aliases ────────────────────────────────────────────────
     // modelName → model
-    if (patch.modelName !== undefined) { patch.model = patch.modelName; delete patch.modelName; }
+    if (patch.modelName !== undefined) {
+      patch.model = patch.modelName;
+      delete patch.modelName;
+    }
     // yearOfManufacture → year
-    if (patch.yearOfManufacture !== undefined) { patch.year = Number(patch.yearOfManufacture); delete patch.yearOfManufacture; }
+    if (patch.yearOfManufacture !== undefined) {
+      patch.year = Number(patch.yearOfManufacture);
+      delete patch.yearOfManufacture;
+    }
     // engineCapacity → engineCc
-    if (patch.engineCapacity !== undefined) { patch.engineCc = Number(patch.engineCapacity); delete patch.engineCapacity; }
+    if (patch.engineCapacity !== undefined) {
+      patch.engineCc = Number(patch.engineCapacity);
+      delete patch.engineCapacity;
+    }
     // weight / engineCc: ensure numeric
     if (patch.weight !== undefined) patch.weight = Number(patch.weight);
     if (patch.engineCc !== undefined) patch.engineCc = Number(patch.engineCc);
@@ -348,51 +390,88 @@ async function update(req, res, next) {
     // pickupLocation → pickup (may be JSON string from FormData)
     if (patch.pickupLocation !== undefined) {
       try {
-        const loc = typeof patch.pickupLocation === 'string'
-          ? JSON.parse(patch.pickupLocation)
-          : patch.pickupLocation;
+        const loc =
+          typeof patch.pickupLocation === "string"
+            ? JSON.parse(patch.pickupLocation)
+            : patch.pickupLocation;
+        // Save `ward` in the `address` field (frontend sends `ward`).
+        // Do NOT copy `city` into `address`.
+        // In update handler, after parsing loc:
         patch.pickup = {
-          neighborhood: loc.city || loc.neighborhood || '',
-          address:      loc.city || loc.address || '',
-          coordinates:  [
+          neighborhood: loc.city || "",
+          address: loc.ward ||  "",
+          coordinates: [
             Number(loc.coordinates?.lng ?? 0),
             Number(loc.coordinates?.lat ?? 0),
           ],
         };
-      } catch (_) { /* ignore parse error, skip pickup update */ }
+        // Debug log to help verify incoming payload during development
+        console.log("[vehicle:update] parsed pickupLocation ->", {
+          loc,
+          mappedPickup: patch.pickup,
+        });
+      } catch (err) {
+        console.log(
+          "[vehicle:update] failed to parse pickupLocation:",
+          err && err.message,
+        );
+        /* ignore parse error, skip pickup update */
+      }
       delete patch.pickupLocation;
     }
     // features: may arrive as JSON string from FormData
-    if (patch.features !== undefined && typeof patch.features === 'string') {
-      try { patch.features = JSON.parse(patch.features); } catch (_) { delete patch.features; }
+    if (patch.features !== undefined && typeof patch.features === "string") {
+      try {
+        patch.features = JSON.parse(patch.features);
+      } catch (_) {
+        delete patch.features;
+      }
     }
 
     // ── vehicleType → type ────────────────────────────────────────────────
     const allowedTypes = ["motorcycle", "scooter", "electric"];
     if (patch.vehicleType !== undefined || patch.type !== undefined) {
       const incoming = patch.vehicleType ?? patch.type;
-      const normalized = incoming ? incoming.toString().trim().toLowerCase() : "";
+      const normalized = incoming
+        ? incoming.toString().trim().toLowerCase()
+        : "";
       if (!allowedTypes.includes(normalized)) {
-        return res.status(400).json({ message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}` });
+        return res
+          .status(400)
+          .json({
+            message: `Invalid vehicle type. Allowed: ${allowedTypes.join(", ")}`,
+          });
       }
       patch.type = normalized;
       delete patch.vehicleType;
     }
 
     // ── status ────────────────────────────────────────────────────────────
-    const allowedStatuses = ["pending", "active", "on-trip", "suspended", "archived"];
+    const allowedStatuses = [
+      "pending",
+      "active",
+      "on-trip",
+      "suspended",
+      "archived",
+    ];
     if (patch.status !== undefined) {
-      const normalizedStatus = patch.status ? patch.status.toString().trim().toLowerCase() : "";
+      const normalizedStatus = patch.status
+        ? patch.status.toString().trim().toLowerCase()
+        : "";
       if (!allowedStatuses.includes(normalizedStatus)) {
-        return res.status(400).json({ message: `Invalid vehicle status. Allowed: ${allowedStatuses.join(", ")}` });
+        return res
+          .status(400)
+          .json({
+            message: `Invalid vehicle status. Allowed: ${allowedStatuses.join(", ")}`,
+          });
       }
       patch.status = normalizedStatus;
     }
 
-    const hasFiles = req.files && (
-      (req.files.vehicleImages && req.files.vehicleImages.length > 0) ||
-      (req.files.documentImages && req.files.documentImages.length > 0)
-    );
+    const hasFiles =
+      req.files &&
+      ((req.files.vehicleImages && req.files.vehicleImages.length > 0) ||
+        (req.files.documentImages && req.files.documentImages.length > 0));
 
     if (Object.keys(patch).length === 0 && !hasFiles) {
       return res.status(400).json({ message: "No valid fields to update" });
@@ -402,8 +481,14 @@ async function update(req, res, next) {
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
 
     const authUserId = req.user && (req.user._id || req.user.sub);
-    if (authUserId && vehicle.owner && vehicle.owner.toString() !== authUserId.toString()) {
-      return res.status(403).json({ message: "Not authorized to update this vehicle" });
+    if (
+      authUserId &&
+      vehicle.owner &&
+      vehicle.owner.toString() !== authUserId.toString()
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Not authorized to update this vehicle" });
     }
 
     Object.assign(vehicle, patch);
@@ -411,7 +496,9 @@ async function update(req, res, next) {
     // ── handle uploaded photos ────────────────────────────────────────────
     if (hasFiles) {
       if (req.files.vehicleImages && req.files.vehicleImages.length > 0) {
-        const newUrls = req.files.vehicleImages.map((f) => f.path || f.secure_url);
+        const newUrls = req.files.vehicleImages.map(
+          (f) => f.path || f.secure_url,
+        );
         // If existingPhotos slot map is provided, rebuild the array in-place.
         // existingPhotos is a JSON array [url|null, ...]; null means this slot
         // is replaced by the next entry in newUrls.
@@ -425,7 +512,8 @@ async function update(req, res, next) {
             });
             // Drop trailing nulls and append any overflow uploads
             const trimmed = rebuilt.filter(Boolean);
-            while (uploadIdx < newUrls.length) trimmed.push(newUrls[uploadIdx++]);
+            while (uploadIdx < newUrls.length)
+              trimmed.push(newUrls[uploadIdx++]);
             vehicle.photos = trimmed;
           } catch (_) {
             // Fallback: just append if parse fails
@@ -440,7 +528,9 @@ async function update(req, res, next) {
       }
       if (req.files.documentImages && req.files.documentImages.length > 0) {
         // Rebuild documents using a provided `existingDocuments` slot map when available.
-        const newUrls = req.files.documentImages.map((f) => f.path || f.secure_url);
+        const newUrls = req.files.documentImages.map(
+          (f) => f.path || f.secure_url,
+        );
         if (req.body.existingDocuments) {
           try {
             const slotMap = JSON.parse(req.body.existingDocuments); // [url|null, ...]
@@ -453,15 +543,26 @@ async function update(req, res, next) {
                 const url = newUrls[uploadIdx++];
                 if (url) rebuilt.push({ type: docType, url, verified: false });
               } else {
-                const found = (vehicle.documents || []).find((d) => d.url === existing);
+                const found = (vehicle.documents || []).find(
+                  (d) => d.url === existing,
+                );
                 if (found) rebuilt.push(found);
-                else rebuilt.push({ type: docType, url: existing, verified: false });
+                else
+                  rebuilt.push({
+                    type: docType,
+                    url: existing,
+                    verified: false,
+                  });
               }
             }
             // append any overflow uploads
             while (uploadIdx < newUrls.length) {
               const type = DOC_KEYS[rebuilt.length] || "other";
-              rebuilt.push({ type, url: newUrls[uploadIdx++], verified: false });
+              rebuilt.push({
+                type,
+                url: newUrls[uploadIdx++],
+                verified: false,
+              });
             }
             vehicle.documents = rebuilt;
           } catch (_) {
