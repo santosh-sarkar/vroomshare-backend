@@ -314,7 +314,7 @@ async function get(req, res, next) {
   try {
     const vehicle = await Vehicle.findById(req.params.id).populate(
       "owner",
-      "name email citizenshipNo",
+      "name email citizenshipNo image.profile",
     );
     if (!vehicle) return res.status(404).json({ message: "Vehicle not found" });
 
