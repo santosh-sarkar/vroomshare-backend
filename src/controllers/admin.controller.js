@@ -845,7 +845,7 @@ async function getDisputeById(req, res, next) {
     const dispute = await Dispute.findById(id)
       .populate({
         path: 'bookingId',
-        select: 'startDate endDate totalPrice status renter owner vehicle payment',
+        select: 'startDate endDate totalPrice status renter owner vehicle payment preStartPhotos',
         populate: [
           { path: 'renter', select: 'name email phone image role' },
           { path: 'owner', select: 'name email phone image role' },
