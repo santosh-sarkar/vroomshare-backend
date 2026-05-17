@@ -14,4 +14,7 @@ router.post('/logout', controller.logout);
 // Change password (authenticated, OTP-based)
 router.post('/change-password', authenticateToken, controller.changePassword);
 
+// Reset password (unauthenticated, OTP-based)
+router.post('/reset-password', controller.resetPassword);
+
 module.exports = router;

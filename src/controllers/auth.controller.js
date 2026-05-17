@@ -41,9 +41,7 @@ async function signup(req, res, next) {
   }
 }
 
-/**
- * Step 2: Verify code and complete signup
- */
+//  Step 2: Verify code and complete signup
 async function verifyAndRegister(req, res, next) {
   try {
     const { email, code } = req.body;
@@ -77,9 +75,8 @@ async function verifyAndRegister(req, res, next) {
   }
 }
 
-/**
- * Login user
- */
+
+//  Login user
 async function login(req, res, next) {
   try {
     const { email, password } = req.body;
@@ -118,9 +115,8 @@ async function login(req, res, next) {
   }
 }
 
-/**
- * Logout user
- */
+
+  // Logout user
 async function logout(req, res, next) {
   try {
     res.clearCookie("accessToken", COOKIE_OPTIONS);
@@ -132,14 +128,7 @@ async function logout(req, res, next) {
   }
 }
 
-/**
- * Change password via OTP
- * POST /auth/change-password
- * Requires authentication (JWT)
- *
- * Mode 1 — Request OTP: body = {} (no code/newPassword) → sends OTP to user's email
- * Mode 2 — Verify & update: body = { code, newPassword } → verifies OTP, updates password
- */
+// Change password (2 modes: 1. Send OTP, 2. Verify OTP + Update password)
 async function changePassword(req, res, next) {
   try {
     const { sub, role } = req.user || {};
@@ -181,4 +170,43 @@ async function changePassword(req, res, next) {
   }
 }
 
-module.exports = { signup, verifyAndRegister, login, logout, changePassword };
+// resetPassword would be similar to changePassword but without requiring authentication.
+ async function resetPassword(req, res, next) {
+  try {
+    // mode 1: send OTP to email
+    const { email , code, newPassword } = req.body;
+    if (email) {
+      const user = await findUserByEmail(email);
+      if (user) {
+        const otp = generateVerificationCode();
+        const expiresAt = getVerificationCodeExpiration();
+        storeVerificationCode(user.email, otp, expiresAt);
+        await sendPasswordResetEmail(user.email, otp, user.name || "User");
+      }
+      return res.json({ ok: true, message: "Verification code sent to your email." });
+    }
+
+    // mode 2: verify OTP and reset password
+    
+    if (code && newPassword) {
+      if (newPassword.trim().length < 6) {
+        return res.status(400).json({ ok: false, message: "New password must be at least 6 characters." });
+      }
+      verifyStoredCode(email, code.trim());
+      clearVerificationCode(email);
+      const hashed = await hashPassword(newPassword.trim());
+      await UserModel.findOneAndUpdate({ email }, { password: hashed });
+      return res.json({ ok: true, message: "Password updated successfully." });
+    }
+  }catch (err) {
+    if (
+      err.message?.includes("expired") ||
+      err.message?.includes("Invalid") ||
+      err.message?.includes("No verification")
+    ) {
+      return res.status(400).json({ ok: false, message: err.message });
+    }
+    next(err);
+  }
+}
+module.exports = { signup, verifyAndRegister, login, logout, changePassword, resetPassword };
