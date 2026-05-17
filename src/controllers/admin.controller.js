@@ -14,7 +14,8 @@ const PLATFORM_FEE_RATE = 0.15;
 const DISPUTE_STATUSES = ['open', 'in_review', 'escalated', 'resolved', 'rejected'];
 const ACTIVE_DISPUTE_STATUSES = ['open', 'in_review', 'escalated'];
 const CLOSED_DISPUTE_STATUSES = ['resolved', 'rejected'];
-const DISPUTE_WINDOW_MS = 48 * 60 * 60 * 1000;
+// Dispute must be raised within this window after trip completion
+const DISPUTE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function getDisputeAccess(booking, now = new Date()) {
   if (!booking) {
@@ -35,6 +36,7 @@ function getDisputeAccess(booking, now = new Date()) {
 
   const isOngoing =
     status === 'ongoing' ||
+    status === 'initiate_ongoing' ||
     (status === 'confirmed' && hasValidDates && now >= startDate && now <= endDate);
 
   if (isOngoing) {
@@ -68,7 +70,7 @@ function getDisputeAccess(booking, now = new Date()) {
 
     return {
       allowed: false,
-      message: 'Disputes for completed bookings must be raised within 48 hours of trip completion',
+      message: 'Disputes for completed bookings must be raised within 24 hours of trip completion',
       mode: 'expired',
       expiresAt,
     };
@@ -76,7 +78,7 @@ function getDisputeAccess(booking, now = new Date()) {
 
   return {
     allowed: false,
-    message: 'You can report an issue only during an ongoing trip or raise a dispute within 48 hours after completion',
+    message: 'You can report an issue only during an ongoing trip or raise a dispute within 24 hours after completion',
     mode: 'unavailable',
   };
 }
