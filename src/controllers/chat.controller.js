@@ -128,10 +128,12 @@ async function getMessages(req, res) {
   }
 
   const messages = await Message.find({ conversationId: id })
-    .sort({ createdAt: 1 })
+    .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(limit)
     .lean();
+
+    messages.reverse(); // Return in chronological order
 
   // Mark messages sent to this user as read
   await Message.updateMany(
