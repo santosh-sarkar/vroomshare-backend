@@ -56,8 +56,8 @@ async function getConversations(req, res) {
       title: trip ? trip.vehicleTitle : '',
       text: c.lastMessage?.text ?? '',
       time: c.lastMessage?.sentAt
-        ? formatTime(c.lastMessage.sentAt)
-        : formatTime(c.updatedAt),
+        ? c.lastMessage.sentAt
+        : c.updatedAt,
       online: false,
       otherUserId: other?._id,
       trip,
@@ -177,18 +177,6 @@ async function sendMessage(req, res) {
   await conversation.save();
 
   return res.status(201).json({ ok: true, message });
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-function formatTime(date) {
-  if (!date) return '';
-  const d = new Date(date);
-  const now = new Date();
-  const diffDays = Math.floor((now - d) / 86400000);
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 module.exports = { getConversations, getOrCreateConversation, getMessages, sendMessage };
