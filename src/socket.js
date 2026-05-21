@@ -3,6 +3,7 @@ const cookie = require('cookie');
 const { verifyToken } = require('./utils/jwt');
 const Message = require('./models/message.model');
 const Conversation = require('./models/conversation.model');
+const User = require('./models/users/user.model');
 
 /**
  * Attaches Socket.io to the given HTTP server and wires up chat events.
@@ -84,10 +85,12 @@ function attachSocketServer(httpServer, allowedOrigins) {
         await conversation.save();
 
         // Broadcast to everyone in the room (including sender)
+        const sender = await User.findById(userId).select('name');
         io.to(conversationId).emit('new_message', {
           id: message._id,
           conversationId,
           senderId: userId,
+          senderName: sender?.name || 'Someone',
           text: message.text,
           createdAt: message.createdAt,
         });
