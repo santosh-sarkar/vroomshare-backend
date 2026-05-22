@@ -62,12 +62,12 @@ async function getEarnings(ownerId) {
 
   const activeBookings = await Booking.countDocuments({
     owner: ownerObjectId,
-    status: { $in: ['approved', 'confirmed'] },
+    status: { $in: ['approved', 'confirmed', 'initiate_ongoing', 'ongoing'] },
   });
 
   const activeRentals = await Booking.countDocuments({
     owner: ownerObjectId,
-    status: 'confirmed',
+    status: { $in: ['initiate_ongoing', 'ongoing'] },
     startDate: { $lte: now },
     endDate: { $gte: now },
   });
