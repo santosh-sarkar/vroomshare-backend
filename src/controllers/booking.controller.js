@@ -2,7 +2,10 @@ const Booking = require("../models/booking.model");
 const Vehicle = require("../models/vehicle.model");
 const Dispute = require("../models/dispute.model");
 const Renter = require("../models/users/renter.model");
-const { sendBookingApprovedPaymentEmail, sendBookingRequestEmail } = require("../services/email.service");
+const {
+  sendBookingApprovedPaymentEmail,
+  sendBookingRequestEmail,
+} = require("../services/email.service");
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -27,7 +30,7 @@ async function attachExistingDisputes(items) {
 
   const bookingIds = validBookings.map((booking) => booking._id);
   const disputes = await Dispute.find({ bookingId: { $in: bookingIds } })
-    .select('_id bookingId status createdAt updatedAt')
+    .select("_id bookingId status createdAt updatedAt")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -46,7 +49,8 @@ async function attachExistingDisputes(items) {
   }
 
   validBookings.forEach((booking) => {
-    booking.existingDispute = disputeByBookingId.get(String(booking._id)) || null;
+    booking.existingDispute =
+      disputeByBookingId.get(String(booking._id)) || null;
   });
 
   return items;
@@ -67,13 +71,16 @@ async function create(req, res, next) {
     const renterId = req.user && (req.user._id || req.user.sub);
     const { vehicleId, startDate, endDate } = req.body;
 
-
     if (!renterId)
       return res.status(401).json({ message: "please login first" });
 
-    const renter = await Renter.findById(renterId).select('isVerified').lean();
+    const renter = await Renter.findById(renterId).select("isVerified").lean();
     if (!renter || !renter.isVerified)
-      return res.status(403).json({ ok: false, message: "KYC verification required before booking. Please complete your identity verification." });
+      return res.status(403).json({
+        ok: false,
+        message:
+          "KYC verification required before booking. Please complete your identity verification.",
+      });
 
     if (!vehicleId || !startDate || !endDate)
       return res
@@ -122,13 +129,13 @@ async function create(req, res, next) {
     }
 
     await Vehicle.findByIdAndUpdate(vehicleId, {
-          $addToSet: {
-            blockedDates: {
-              from: start,
-              to: end,
-            },
-          },
-        });
+      $addToSet: {
+        blockedDates: {
+          from: start,
+          to: end,
+        },
+      },
+    });
 
     // SAFE NIGHT CALCULATION
     const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
@@ -154,7 +161,9 @@ async function create(req, res, next) {
     // Notify owner about the new booking request (fire-and-forget)
     try {
       const Owner = require("../models/users/owner.model");
-      const owner = await Owner.findById(vehicle.owner).select("name email").lean();
+      const owner = await Owner.findById(vehicle.owner)
+        .select("name email")
+        .lean();
       if (owner && owner.email) {
         const renter = await Renter.findById(renterId).select("name").lean();
         const dashboardUrl = process.env.VERCEL_FRONTEND_URL
@@ -173,7 +182,10 @@ async function create(req, res, next) {
         });
       }
     } catch (emailErr) {
-      console.error("Failed to send booking request email to owner:", emailErr && emailErr.message ? emailErr.message : emailErr);
+      console.error(
+        "Failed to send booking request email to owner:",
+        emailErr && emailErr.message ? emailErr.message : emailErr,
+      );
     }
   } catch (e) {
     next(e);
@@ -185,7 +197,8 @@ async function get(req, res, next) {
   try {
     const authUserId = req.user && (req.user._id || req.user.sub);
 
-    if (!req.params.id) return res.status(400).json({ message: "id is required" });
+    if (!req.params.id)
+      return res.status(400).json({ message: "id is required" });
 
     const booking = await Booking.findById(req.params.id)
       .populate({
@@ -209,7 +222,8 @@ async function get(req, res, next) {
       const isOwner =
         booking.owner && booking.owner._id.toString() === authUserId.toString();
       const isRenter =
-        booking.renter && booking.renter._id.toString() === authUserId.toString();
+        booking.renter &&
+        booking.renter._id.toString() === authUserId.toString();
       if (!isOwner && !isRenter)
         return res.status(403).json({ message: "Access forbidden" });
     }
@@ -254,19 +268,19 @@ async function ownerBookings(req, res, next) {
     if (!ownerId)
       return res.status(401).json({ message: "Authentication required" });
 
-    const { status, period = 'all', page = 1, limit = 10 } = req.query;
+    const { status, period = "all", page = 1, limit = 10 } = req.query;
     const query = { owner: ownerId };
 
-    if (status && status !== 'all') {
+    if (status && status !== "all") {
       const statusMap = {
-        awaiting: 'requested',
-        requested: 'requested',
-        approved: 'approved',
-        confirmed: 'confirmed',
-        progress: ['confirmed', 'ongoing'],
-        ongoing: 'ongoing',
-        completed: 'completed',
-        cancelled: 'cancelled',
+        awaiting: "requested",
+        requested: "requested",
+        approved: "approved",
+        confirmed: "confirmed",
+        progress: ["confirmed", "ongoing"],
+        ongoing: "ongoing",
+        completed: "completed",
+        cancelled: "cancelled",
       };
 
       const resolvedStatus = statusMap[status] || status;
@@ -275,19 +289,19 @@ async function ownerBookings(req, res, next) {
         : resolvedStatus;
     }
 
-    if (period && period !== 'all') {
+    if (period && period !== "all") {
       const now = new Date();
       const fromDate = new Date();
 
-      if (period === '7d') {
+      if (period === "7d") {
         fromDate.setDate(now.getDate() - 7);
-      } else if (period === '30d') {
+      } else if (period === "30d") {
         fromDate.setDate(now.getDate() - 30);
-      } else if (period === '90d') {
+      } else if (period === "90d") {
         fromDate.setDate(now.getDate() - 90);
       }
 
-      if (['7d', '30d', '90d'].includes(period)) {
+      if (["7d", "30d", "90d"].includes(period)) {
         query.createdAt = { $gte: fromDate, $lte: now };
       }
     }
@@ -327,12 +341,12 @@ async function update(req, res, next) {
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
     const authUserId = req.user && (req.user._id || req.user.sub);
-    if (!authUserId || (booking.owner && booking.owner.toString() !== authUserId.toString())) {
+    if (
+      !authUserId ||
+      (booking.owner && booking.owner.toString() !== authUserId.toString())
+    ) {
       return res.status(403).json({ message: "Not authorized" });
     }
-
-    const vehicle = await Vehicle.findById(booking.vehicle);
-   if (!vehicle) return res.status(404).json({ message: "Associated vehicle not found" });
 
     const { action } = req.body;
     if (!action) return res.status(400).json({ message: "action is required" });
@@ -363,29 +377,12 @@ async function update(req, res, next) {
     } else if (action === "cancel") {
       booking.status = "cancelled";
       booking.completedAt = null;
-      await Vehicle.findByIdAndUpdate(booking.vehicle, {
-        $pull: {
-          blockedDates: {
-            from: booking.startDate,
-            to: booking.endDate,
-          },
-        },
-      });
-      
     } else if (action === "initiate_ongoing") {
       booking.status = "initiate_ongoing";
       booking.completedAt = null;
     } else if (action === "complete") {
       booking.status = "completed";
       booking.completedAt = new Date();
-      vehicle.blockedDates = vehicle.blockedDates.filter(
-        (bd) =>
-          !(
-            bd.from.getTime() === booking.startDate.getTime() &&
-            bd.to.getTime() === booking.endDate.getTime()
-          )
-      );
-      await vehicle.save();
     } else {
       return res.status(400).json({ message: "Invalid action" });
     }
@@ -393,13 +390,21 @@ async function update(req, res, next) {
     await booking.save();
 
     if (action === "approve") {
+      const vehicle = await Vehicle.findById(booking.vehicle);
+      if (!vehicle)
+        return res
+          .status(404)
+          .json({ message: "Associated vehicle not found" });
+          
       try {
         const renter = await Renter.findById(booking.renter)
           .select("name email")
           .lean();
 
         if (renter?.email) {
-          const vehicleName = [vehicle.brand, vehicle.model].filter(Boolean).join(" ") || "your booked vehicle";
+          const vehicleName =
+            [vehicle.brand, vehicle.model].filter(Boolean).join(" ") ||
+            "your booked vehicle";
 
           await sendBookingApprovedPaymentEmail(renter.email, {
             userName: renter.name || "User",
@@ -419,7 +424,7 @@ async function update(req, res, next) {
       }
     }
 
-    if (booking.status === "completed") {
+    if (action === "cancel" || action === "complete") {
       await Vehicle.findByIdAndUpdate(booking.vehicle, {
         $pull: {
           blockedDates: {
@@ -440,16 +445,24 @@ async function update(req, res, next) {
 async function checkVehicleBookingStatus(req, res, next) {
   try {
     const renterId = req.user && (req.user._id || req.user.sub);
-    if (!renterId) return res.status(401).json({ ok: false, message: "Authentication required" });
+    if (!renterId)
+      return res
+        .status(401)
+        .json({ ok: false, message: "Authentication required" });
 
     const { vehicleId } = req.params;
-    if (!vehicleId) return res.status(400).json({ ok: false, message: "vehicleId is required" });
+    if (!vehicleId)
+      return res
+        .status(400)
+        .json({ ok: false, message: "vehicleId is required" });
 
     const existing = await Booking.findOne({
       vehicle: vehicleId,
       renter: renterId,
       status: { $in: ["requested", "approved", "confirmed", "ongoing"] },
-    }).select("status _id startDate endDate totalPrice").lean();
+    })
+      .select("status _id startDate endDate totalPrice")
+      .lean();
 
     res.json({
       ok: true,
@@ -469,21 +482,37 @@ async function checkVehicleBookingStatus(req, res, next) {
 async function cancelByRenter(req, res, next) {
   try {
     const booking = await Booking.findById(req.params.id);
-    if (!booking) return res.status(404).json({ ok: false, message: 'Booking not found' });
+    if (!booking)
+      return res.status(404).json({ ok: false, message: "Booking not found" });
 
     const renterId = req.user && (req.user._id || req.user.sub);
     if (!renterId || booking.renter.toString() !== renterId.toString()) {
-      return res.status(403).json({ ok: false, message: 'Not authorized' });
+      return res.status(403).json({ ok: false, message: "Not authorized" });
     }
 
-    if (booking.status !== 'requested') {
-      return res.status(400).json({ ok: false, message: `Cannot cancel a booking with status "${booking.status}"` });
+    if (booking.status !== "requested") {
+      return res.status(400).json({
+        ok: false,
+        message: `Cannot cancel a booking with status "${booking.status}"`,
+      });
     }
 
-    booking.status = 'cancelled';
-    await booking.save();
+    booking.status = "cancelled";
 
-    res.json({ ok: true, message: 'Booking cancelled successfully' });
+    await Promise.all([
+      booking.save(),
+
+      Vehicle.findByIdAndUpdate(booking.vehicle, {
+        $pull: {
+          blockedDates: {
+            from: booking.startDate,
+            to: booking.endDate,
+          },
+        },
+      }),
+    ]);
+
+    res.json({ ok: true, message: "Booking cancelled successfully" });
   } catch (e) {
     next(e);
   }
@@ -493,10 +522,14 @@ async function cancelByRenter(req, res, next) {
 async function startTrip(req, res, next) {
   try {
     const renterId = req.user && (req.user._id || req.user.sub);
-    if (!renterId) return res.status(401).json({ ok: false, message: "Authentication required" });
+    if (!renterId)
+      return res
+        .status(401)
+        .json({ ok: false, message: "Authentication required" });
 
     const booking = await Booking.findById(req.params.id);
-    if (!booking) return res.status(404).json({ ok: false, message: "Booking not found" });
+    if (!booking)
+      return res.status(404).json({ ok: false, message: "Booking not found" });
 
     if (booking.renter.toString() !== renterId.toString()) {
       return res.status(403).json({ ok: false, message: "Not authorized" });
@@ -511,10 +544,15 @@ async function startTrip(req, res, next) {
 
     const files = req.files || [];
     if (files.length < 3) {
-      return res.status(400).json({ ok: false, message: "At least 3 pre-start photos are required." });
+      return res.status(400).json({
+        ok: false,
+        message: "At least 3 pre-start photos are required.",
+      });
     }
     if (files.length > 5) {
-      return res.status(400).json({ ok: false, message: "Maximum 5 pre-start photos allowed." });
+      return res
+        .status(400)
+        .json({ ok: false, message: "Maximum 5 pre-start photos allowed." });
     }
 
     booking.preStartPhotos = files.map((f) => ({
@@ -524,10 +562,24 @@ async function startTrip(req, res, next) {
     booking.status = "ongoing";
     await booking.save();
 
-    res.json({ ok: true, message: "Trip started", status: booking.status, preStartPhotos: booking.preStartPhotos });
+    res.json({
+      ok: true,
+      message: "Trip started",
+      status: booking.status,
+      preStartPhotos: booking.preStartPhotos,
+    });
   } catch (e) {
     next(e);
   }
 }
 
-module.exports = { create, get, renterBookings, ownerBookings, update, checkVehicleBookingStatus, cancelByRenter, startTrip };
+module.exports = {
+  create,
+  get,
+  renterBookings,
+  ownerBookings,
+  update,
+  checkVehicleBookingStatus,
+  cancelByRenter,
+  startTrip,
+};
