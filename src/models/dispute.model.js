@@ -13,6 +13,7 @@ const DisputeSchema = new mongoose.Schema({
     originalName: { type: String },
   }],
   status: { type: String, enum: ['open', 'in_review', 'escalated', 'resolved', 'rejected'], default: 'open' },
+  mode: { type: String, enum: ['issue', 'dispute'], default: 'issue' },
   resolution: { type: String },
   timeline: [{
     type: {
