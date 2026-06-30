@@ -25,7 +25,7 @@ async function payNow(req, res, next) {
       return res.json({ message: "Already paid" });
     }
 
-    // 🔥 NEW transaction for every attempt (IMPORTANT)
+    //  NEW transaction for every attempt ()
     const transaction_uuid = uuidv4();
 
     booking.payment.transaction_uuid = transaction_uuid;

@@ -203,7 +203,7 @@ async function get(req, res, next) {
     const booking = await Booking.findById(req.params.id)
       .populate({
         path: "vehicle",
-        select: "model brand registrationNumber photos pricing",
+        select: "model brand registrationNumber photos pricing pickup",
       })
       .populate({
         path: "owner",
