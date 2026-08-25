@@ -10,8 +10,6 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:3000",
   "https://vroomshare-frontend.vercel.app",
-  "https://vroomshare.vercel.app",
-  "https://vroomshare.santoshsarkar.com.np/"
 ];
 app.use(cors({ 
   origin: allowedOrigins, 
